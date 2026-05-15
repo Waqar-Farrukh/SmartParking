@@ -213,7 +213,7 @@ export function AppProvider({ children }) {
         headers: { 'ngrok-skip-browser-warning': 'true' }
       });
       const data = await res.json();
-      setBookings(data);
+      setBookings(Array.isArray(data) ? data : []);
     } catch (err) { console.error('refreshBookings:', err); }
   }, [currentUser?.id]);
 

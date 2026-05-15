@@ -67,6 +67,10 @@
   @apply bg-black/40 border-transparent focus:bg-black/60 focus:ring-v3-teal/10 text-white;
 }
 
+.dark input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
 /* Smooth Transitions */
 .page-transition {
   @apply animate-fade-up;

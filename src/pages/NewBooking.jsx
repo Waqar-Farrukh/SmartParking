@@ -150,11 +150,15 @@ export default function NewBooking() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
             <div className="space-y-4">
-              <label className="text-[10px] font-black uppercase tracking-[0.3em] opacity-30 ml-4 leading-none dark:text-white" style={{ color: isDark ? '' : '#A39B93' }}>Access Starts</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] opacity-30 ml-4 leading-none dark:text-white flex items-center gap-2" style={{ color: isDark ? '' : '#A39B93' }}>
+                <CalendarDays size={14} className="dark:text-v3-teal" style={{ color: isDark ? '' : '#C26A5A' }} /> Access Starts
+              </label>
               <input type="datetime-local" value={entryTime} onChange={e => setEntryTime(e.target.value)} className="premium-input font-display text-2xl !p-8" />
             </div>
             <div className="space-y-4">
-              <label className="text-[10px] font-black uppercase tracking-[0.3em] opacity-30 ml-4 leading-none dark:text-white" style={{ color: isDark ? '' : '#A39B93' }}>Access Ends</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] opacity-30 ml-4 leading-none dark:text-white flex items-center gap-2" style={{ color: isDark ? '' : '#A39B93' }}>
+                <CalendarDays size={14} className="dark:text-v3-teal" style={{ color: isDark ? '' : '#C26A5A' }} /> Access Ends
+              </label>
               <input type="datetime-local" value={exitTime} onChange={e => setExitTime(e.target.value)} className="premium-input font-display text-2xl !p-8" />
             </div>
           </div>

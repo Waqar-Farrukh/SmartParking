@@ -264,3 +264,5 @@ GO
 -- ====================================================================
 SELECT dbo.GetDynamicRate('A', GETDATE(), DATEADD(hour, 2, GETDATE()), 2) AS TestRate;
 GO
+
+select * from USERS;
