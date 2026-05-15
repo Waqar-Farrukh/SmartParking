@@ -50,7 +50,7 @@ export default function Violations() {
                 </div>
                 <div>
                   <p className="font-display font-black text-xl dark:text-white" style={{ color: '#2C2A29' }}>Overstay Fine</p>
-                  <p className="text-xs font-bold uppercase tracking-widest dark:opacity-40" style={{ color: '#A39B93' }}>Reservation #{v.reservationId}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest dark:opacity-40" style={{ color: '#A39B93' }}>Reservation #{v.reservationId} • Issued {new Date(v.createdAt).toLocaleString()}</p>
                 </div>
               </div>
               <div className="flex items-center gap-8">

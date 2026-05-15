@@ -159,7 +159,7 @@ export default function Dashboard() {
                     {recentBookings.map((b) => (
                         <tr key={b.id} className="hover:bg-light-liveFeed/50 dark:hover:bg-white/5 transition-colors" style={{ borderBottom: '1px solid rgba(229,223,215,0.5)' }}>
                             <td className="p-12 font-display font-black text-3xl tracking-tighter dark:text-white" style={{ color: '#2C2A29' }}>{b.spotId}</td>
-                            <td className="p-12 text-sm font-bold uppercase tracking-widest dark:opacity-40" style={{ color: '#A39B93' }}>{new Date(b.startTime).toLocaleDateString()}</td>
+                            <td className="p-12 text-sm font-bold uppercase tracking-widest dark:opacity-40" style={{ color: '#A39B93' }}>{new Date(b.startTime).toLocaleString()}</td>
                             <td className="p-12">
                                 <div className={`w-fit px-5 py-2 rounded-xl text-[10px] font-black tracking-[0.2em] uppercase ${
                                     b.status === 'active' ? 'bg-v3-emerald/20 text-v3-emerald' : 'bg-light-secured dark:bg-black/40 text-light-tertiary dark:text-gray-500'
