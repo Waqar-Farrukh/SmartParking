@@ -1,9 +1,3 @@
--- ====================================================================
--- SMART PARKING SYSTEM - FINAL CONNECTED DATABASE SCRIPT
--- Corrected for React Frontend Naming Conventions
--- Microsoft SQL Server (2017+)
--- ====================================================================
-
 -- 1. Create Database
 IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'SmartParkingDB')
 BEGIN
@@ -270,15 +264,3 @@ GO
 -- ====================================================================
 SELECT dbo.GetDynamicRate('A', GETDATE(), DATEADD(hour, 2, GETDATE()), 2) AS TestRate;
 GO
-
--- ====================================================================
--- 6. MIGRATION: Run this on your EXISTING database to add the role column
--- ====================================================================
--- If you already have the database and just need to add the role column, run:
---
--- USE SmartParkingDB;
--- GO
--- ALTER TABLE Users ADD role NVARCHAR(20) DEFAULT 'user';
--- GO
--- UPDATE Users SET role = 'admin' WHERE email = 'admin@example.com';
--- GO
