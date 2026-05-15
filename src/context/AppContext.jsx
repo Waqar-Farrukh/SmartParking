@@ -42,7 +42,9 @@ export function AppProvider({ children }) {
   // ===== HEALTH CHECK =====
   const checkHealth = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/health`);
+      const res = await fetch(`${API_BASE}/health`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setDbHealth(data);
       return data;
@@ -56,7 +58,9 @@ export function AppProvider({ children }) {
   // ===== SPOTS =====
   const refreshSpots = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/parking/spots`);
+      const res = await fetch(`${API_BASE}/parking/spots`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setSpots(data);
     } catch (err) { console.error('refreshSpots:', err); }
@@ -67,7 +71,9 @@ export function AppProvider({ children }) {
     if (!currentUser || isFetching.current) return;
     isFetching.current = true;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/dashboard`);
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/dashboard`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setDashboardData(data);
       setCurrentUser(prev => {
@@ -89,7 +95,9 @@ export function AppProvider({ children }) {
   const refreshViolations = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/violations`);
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/violations`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setViolations(data);
     } catch (err) { console.error('refreshViolations:', err); }
@@ -99,7 +107,10 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/violations/pay`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
         body: JSON.stringify({ violationId: violation.id })
       });
       const data = await res.json();
@@ -118,7 +129,8 @@ export function AppProvider({ children }) {
     if (!currentUser) return;
     try {
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/violations/check`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'ngrok-skip-browser-warning': 'true' }
       });
       const data = await res.json();
       await refreshViolations();
@@ -130,7 +142,9 @@ export function AppProvider({ children }) {
   const refreshLoyalty = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/loyalty`);
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/loyalty`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setPointTransactions(data.transactions || []);
       setCurrentUser(prev => prev ? { ...prev, points: data.points } : prev);
@@ -141,7 +155,10 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/loyalty/redeem`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        }
       });
       const data = await res.json();
       if (data.status === 'success') {
@@ -159,7 +176,9 @@ export function AppProvider({ children }) {
   const refreshWallet = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/wallet`);
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/wallet`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setWalletTransactions(data.transactions || []);
       setCurrentUser(prev => prev ? { ...prev, walletBalance: data.balance } : prev);
@@ -170,7 +189,10 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/wallet/topup`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
         body: JSON.stringify({ amount })
       });
       const data = await res.json();
@@ -187,7 +209,9 @@ export function AppProvider({ children }) {
   const refreshBookings = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/bookings`);
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/bookings`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setBookings(data);
     } catch (err) { console.error('refreshBookings:', err); }
@@ -197,7 +221,10 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/bookings/cancel`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
         body: JSON.stringify({ reservationId: reservation.id })
       });
       const data = await res.json();
@@ -216,7 +243,9 @@ export function AppProvider({ children }) {
   // ===== LEADERBOARD =====
   const refreshLeaderboard = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/leaderboard`);
+      const res = await fetch(`${API_BASE}/leaderboard`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setLeaderboardData(data);
     } catch (err) { console.error('refreshLeaderboard:', err); }
@@ -226,7 +255,9 @@ export function AppProvider({ children }) {
   const refreshAdminStats = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/stats?sender_id=${currentUser.id}`);
+      const res = await fetch(`${API_BASE}/admin/stats?sender_id=${currentUser.id}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setAdminStats(data);
     } catch (err) { console.error('refreshAdminStats:', err); }
@@ -235,7 +266,9 @@ export function AppProvider({ children }) {
   const refreshAdminUsers = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/users?sender_id=${currentUser.id}`);
+      const res = await fetch(`${API_BASE}/admin/users?sender_id=${currentUser.id}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const data = await res.json();
       setAdminUsers(data.users || []);
     } catch (err) { console.error('refreshAdminUsers:', err); }
@@ -247,7 +280,10 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true"
+        },
         body: JSON.stringify({ email, password })
       });
       const data = await res.json();
@@ -269,7 +305,10 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/auth/register`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true"
+        },
         body: JSON.stringify(userData)
       });
       const data = await res.json();
@@ -284,7 +323,10 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/parking/book`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true"
+        },
         body: JSON.stringify(bookingData)
       });
       const data = await res.json();
