@@ -7,7 +7,8 @@ from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+# Enable CORS for all origins and methods to allow frontend-backend communication
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- DATABASE CONFIG ---
 SERVER = r'DESKTOP-UQHOTMT\SQLEXPRESS'

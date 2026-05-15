@@ -1,0 +1,8 @@
+app.py
+schema.sql
+migration.sql
+*.sql
+*.docx
+README.md
+.git
+.vscode
