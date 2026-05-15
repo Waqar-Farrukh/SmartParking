@@ -205,8 +205,15 @@ def book_spot():
         cursor.execute("SELECT vehicle_type_id FROM Users WHERE user_id = ?", (user_id,))
         v_type = cursor.fetchone()[0]
 
+        # Calculate duration in hours
+        from datetime import datetime
+        start_dt = datetime.fromisoformat(start.replace('Z', ''))
+        end_dt = datetime.fromisoformat(end.replace('Z', ''))
+        diff = (end_dt - start_dt).total_seconds() / 3600.0
+        hours = max(1.0, round(diff, 2))
+
         rate = cursor.execute("SELECT dbo.GetDynamicRate(?, ?, ?, ?)", (zone, start, end, v_type)).fetchval()
-        final_price = float(rate) if rate else 80.0
+        final_price = float(rate) * hours if rate else 80.0 * hours
         points_earned = int(final_price * 10)
 
         # Check wallet balance
@@ -272,8 +279,8 @@ def user_dashboard(user_id):
             history.append({
                 "id": r[0],
                 "spotId": r[1],
-                "startTime": r[2].isoformat() if r[2] else '',
-                "endTime": r[3].isoformat() if r[3] else '',
+                "startTime": (r[2].isoformat() + 'Z') if r[2] else '',
+                "endTime": (r[3].isoformat() + 'Z') if r[3] else '',
                 "status": r[4],
                 "finalPrice": float(r[5]) if r[5] else 0
             })
@@ -526,8 +533,8 @@ def get_bookings(user_id):
             bookings.append({
                 "id": r[0],
                 "spotId": r[1],
-                "startTime": r[2].isoformat() if r[2] else '',
-                "endTime": r[3].isoformat() if r[3] else '',
+                "startTime": (r[2].isoformat() + 'Z') if r[2] else '',
+                "endTime": (r[3].isoformat() + 'Z') if r[3] else '',
                 "status": r[4],
                 "finalPrice": float(r[5]) if r[5] else 0,
                 "pointsEarned": r[6] if r[6] else 0
@@ -741,7 +748,7 @@ def admin_stats():
                 "reservationId": r[2],
                 "fineAmount": float(r[3]),
                 "isPaid": bool(r[4]),
-                "createdAt": r[5].isoformat() if r[5] else ''
+                "createdAt": (r[5].isoformat() + 'Z') if r[5] else ''
             })
 
         # Recent reservations for admin
@@ -756,11 +763,11 @@ def admin_stats():
                 "id": r[0],
                 "userName": r[1],
                 "spotId": r[2],
-                "startTime": r[3].isoformat() if r[3] else '',
-                "endTime": r[4].isoformat() if r[4] else '',
+                "startTime": (r[3].isoformat() + 'Z') if r[3] else '',
+                "endTime": (r[4].isoformat() + 'Z') if r[4] else '',
                 "status": r[5],
                 "finalPrice": float(r[6]) if r[6] else 0,
-                "createdAt": r[7].isoformat() if r[7] else ''
+                "createdAt": (r[7].isoformat() + 'Z') if r[7] else ''
             })
 
         return jsonify({
@@ -819,7 +826,7 @@ def admin_users():
                 "walletBalance": float(r[5]) if r[5] else 0,
                 "referralCode": r[6],
                 "role": r[7] if r[7] else 'user',
-                "createdAt": r[8].isoformat() if r[8] else '',
+                "createdAt": (r[8].isoformat() + 'Z') if r[8] else '',
                 "points": r[9],
                 "lifetimePoints": r[10],
                 "totalBookings": r[11]
