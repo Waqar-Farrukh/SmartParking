@@ -29,6 +29,8 @@ export default function NewBooking() {
   const [estimatedCost, setEstimatedCost] = useState(0);
   const [isSurge, setIsSurge] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [appliedDiscount, setAppliedDiscount] = useState(0);
+  const [discountStatus, setDiscountStatus] = useState(null); // 'valid' or 'invalid'
   const [toast, setToast] = useState(null);
 
   const isDark = theme === 'dark';
@@ -75,9 +77,39 @@ export default function NewBooking() {
     setEstimatedCost(Math.ceil(rate * diffHours));
   }, [entryTime, exitTime, vehicle, occupancyPercentage, vehicleTypes]);
 
+  const validateCode = async () => {
+    if (!discountCode) {
+      setAppliedDiscount(0);
+      setDiscountStatus(null);
+      return;
+    }
+    try {
+      const { API_BASE } = useAppContext();
+      const res = await fetch(`${API_BASE}/parking/validate-discount`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({ code: discountCode, userId: currentUser.id })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        setAppliedDiscount(data.amountOff);
+        setDiscountStatus('valid');
+      } else {
+        setAppliedDiscount(0);
+        setDiscountStatus('invalid');
+      }
+    } catch (e) {
+      setAppliedDiscount(0);
+      setDiscountStatus('invalid');
+    }
+  };
+
   const handleNextStep = () => {
     if (step === 1 && estimatedCost > 0 && !errorMsg) setStep(2);
-    if (step === 2 && selectedSpot) setStep(3);
+    if (step === 2 && selectedSpot) {
+       validateCode(); 
+       setStep(3);
+    }
   };
 
   const handleConfirm = async () => {
@@ -86,6 +118,7 @@ export default function NewBooking() {
       spotId: selectedSpot,
       startTime: new Date(entryTime).toISOString(),
       endTime: new Date(exitTime).toISOString(),
+      discountCode: discountCode
     });
     if (success) {
       setToast('Spot Reserved Successfully!');
@@ -231,18 +264,34 @@ export default function NewBooking() {
                          <span className="text-xs font-black uppercase tracking-widest opacity-30" style={{ color: isDark ? '' : '#A39B93' }}>Vehicle Authority</span>
                          <span className="text-sm font-black dark:text-white uppercase" style={{ color: isDark ? '' : '#2C2A29' }}>{vehicleTypes.find(v=>v.id===vehicle)?.name}</span>
                       </div>
-                      <div className="flex justify-between items-center">
-                         <span className="text-xs font-black uppercase tracking-widest opacity-30" style={{ color: isDark ? '' : '#A39B93' }}>Matrix Billing</span>
-                         <span className="text-2xl font-black dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{estimatedCost} <span className="text-xs opacity-30">PKR</span></span>
-                      </div>
+                       <div className="flex justify-between items-center">
+                          <span className="text-xs font-black uppercase tracking-widest opacity-30" style={{ color: isDark ? '' : '#A39B93' }}>Matrix Billing</span>
+                          <span className="text-2xl font-black dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>
+                            {Math.max(0, estimatedCost - appliedDiscount)} <span className="text-xs opacity-30">PKR</span>
+                            {appliedDiscount > 0 && <span className="text-[10px] text-v3-emerald ml-2">(-{appliedDiscount} Applied)</span>}
+                          </span>
+                       </div>
                    </div>
                 </div>
             </div>
 
             <div className="flex flex-col justify-center space-y-10">
                 <div className="space-y-4">
-                    <label className="text-[10px] font-black opacity-30 uppercase tracking-[0.4em] ml-6" style={{ color: isDark ? '' : '#A39B93' }}>Discount Code (Optional)</label>
-                    <input value={discountCode} onChange={e=>setDiscountCode(e.target.value)} placeholder="ENTER CODE" className="w-full p-10 rounded-[2.5rem] bg-gray-50/50 dark:bg-black/40 border border-black/5 dark:border-transparent font-display font-black text-4xl text-center tracking-[0.2em] focus:bg-white dark:focus:bg-black transition-all" />
+                    <div className="flex justify-between items-center ml-6">
+                        <label className="text-[10px] font-black opacity-30 uppercase tracking-[0.4em]" style={{ color: isDark ? '' : '#A39B93' }}>Discount Code (Optional)</label>
+                        {discountStatus === 'valid' && <span className="text-[10px] text-v3-emerald font-black uppercase tracking-widest">Code Applied!</span>}
+                        {discountStatus === 'invalid' && <span className="text-[10px] text-v3-ruby font-black uppercase tracking-widest">Invalid Code</span>}
+                    </div>
+                    <input 
+                      value={discountCode} 
+                      onChange={e=>setDiscountCode(e.target.value)} 
+                      onBlur={validateCode}
+                      placeholder="ENTER CODE" 
+                      className={`w-full p-10 rounded-[2.5rem] bg-gray-50/50 dark:bg-black/40 border-2 font-display font-black text-4xl text-center tracking-[0.2em] focus:bg-white dark:focus:bg-black transition-all ${
+                        discountStatus === 'valid' ? 'border-v3-emerald/50' : 
+                        discountStatus === 'invalid' ? 'border-v3-ruby/50' : 'border-transparent'
+                      }`} 
+                    />
                 </div>
 
                 <button onClick={handleConfirm} className="w-full py-10 rounded-[3rem] bg-v3-indigo dark:bg-v3-teal text-white dark:text-v3-slate font-display font-black text-3xl shadow-vibrant hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6 group" style={{ backgroundColor: isDark ? '' : '#C26A5A' }}>
@@ -260,7 +309,7 @@ export default function NewBooking() {
            <div className="max-w-5xl mx-auto backdrop-blur-3xl border rounded-[3rem] p-8 flex justify-between items-center shadow-[0_30px_100px_rgba(0,0,0,0.2)]" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.9)' : 'rgba(44,42,41,0.9)', borderColor: isDark ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' }}>
               <div className="ml-8">
                  <p className="text-[10px] font-black uppercase tracking-[0.4em] leading-none mb-3" style={{ color: isDark ? '#C26A5A' : '#00ced1' }}>Billing Projection</p>
-                 <h3 className="text-5xl font-display font-black leading-none tracking-tighter" style={{ color: isDark ? '#2C2A29' : '#FFFFFF' }}>{estimatedCost} <span className="text-sm opacity-40">PKR</span> {isSurge && <span className="text-sm text-v3-gold"> (SURGE)</span>}</h3>
+                  <h3 className="text-5xl font-display font-black leading-none tracking-tighter" style={{ color: isDark ? '#2C2A29' : '#FFFFFF' }}>{Math.max(0, estimatedCost - appliedDiscount)} <span className="text-sm opacity-40">PKR</span> {isSurge && <span className="text-sm text-v3-gold"> (SURGE)</span>}</h3>
               </div>
               <button
                 onClick={handleNextStep}

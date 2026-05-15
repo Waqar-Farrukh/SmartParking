@@ -212,8 +212,21 @@ def book_spot():
         diff = (end_dt - start_dt).total_seconds() / 3600.0
         hours = max(1.0, round(diff, 2))
 
+        # Handle Discount Code
+        discount_amount = 0.0
+        discount_code = data.get('discountCode')
+        if discount_code:
+            cursor.execute("SELECT amount_off FROM Discounts WHERE code = ? AND user_id = ? AND used = 0", (discount_code, user_id))
+            disc_row = cursor.fetchone()
+            if disc_row:
+                discount_amount = float(disc_row[0])
+                # Mark as used
+                cursor.execute("UPDATE Discounts SET used = 1 WHERE code = ?", (discount_code,))
+            else:
+                return jsonify({"status": "error", "message": "Invalid or already used discount code."}), 400
+
         rate = cursor.execute("SELECT dbo.GetDynamicRate(?, ?, ?, ?)", (zone, start, end, v_type)).fetchval()
-        final_price = float(rate) * hours if rate else 80.0 * hours
+        final_price = max(0.0, (float(rate) * hours if rate else 80.0 * hours) - discount_amount)
         points_earned = int(final_price * 10)
 
         # Check wallet balance
@@ -249,6 +262,24 @@ def book_spot():
         return jsonify({"status": "success", "price": final_price})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/parking/validate-discount', methods=['POST'])
+def validate_discount():
+    data = request.json
+    code = data.get('code')
+    user_id = data.get('userId')
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT amount_off FROM Discounts WHERE code = ? AND user_id = ? AND used = 0", (code, user_id))
+        row = cursor.fetchone()
+        if row:
+            return jsonify({"status": "success", "amountOff": float(row[0])})
+        else:
+            return jsonify({"status": "error", "message": "Invalid or already used code."}), 400
     finally:
         conn.close()
 
