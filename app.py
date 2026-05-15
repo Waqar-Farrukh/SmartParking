@@ -66,17 +66,18 @@ def login():
         # Check if role column exists
         try:
             cursor.execute(
-                "SELECT user_id, name, email, wallet_balance, referral_code, role FROM Users WHERE email = ? AND password = ?",
+                "SELECT user_id, name, email, wallet_balance, referral_code, role, vehicle_type_id FROM Users WHERE email = ? AND password = ?",
                 (email, h_pass)
             )
         except:
             cursor.execute(
-                "SELECT user_id, name, email, wallet_balance, referral_code FROM Users WHERE email = ? AND password = ?",
+                "SELECT user_id, name, email, wallet_balance, referral_code, vehicle_type_id FROM Users WHERE email = ? AND password = ?",
                 (email, h_pass)
             )
         user = cursor.fetchone()
         if user:
-            role = user[5] if len(user) > 5 else 'user'
+            role = user[5] if len(user) > 6 else 'user'
+            v_type_id = user[6] if len(user) > 6 else (user[5] if len(user) == 6 else 2)
             return jsonify({
                 "status": "success",
                 "user": {
@@ -85,7 +86,8 @@ def login():
                     "email": user[2],
                     "wallet_balance": float(user[3]),
                     "referral_code": user[4],
-                    "role": role
+                    "role": role,
+                    "vehicle_type_id": v_type_id
                 }
             })
         return jsonify({"status": "error", "message": "Invalid Credentials. Check your email and password."}), 401

@@ -128,8 +128,13 @@ export default function Dashboard() {
             </div>
             <div>
               <h3 className="text-[10px] font-black uppercase tracking-[0.4em] mb-3 leading-none opacity-40">Active Session</h3>
-              <div className="text-6xl font-black font-display tracking-tight leading-none">
+              <div className="text-6xl font-black font-display tracking-tight leading-none mb-4">
                 {activeReservation.spotId} <span className="opacity-10 mx-2">/</span> {timeLeft}
+              </div>
+              <div className="flex gap-6 opacity-60 font-bold text-xs uppercase tracking-[0.2em]">
+                <span>Arrival: {new Date(activeReservation.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                <span className="opacity-20">•</span>
+                <span>Exit: {new Date(activeReservation.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
             </div>
           </div>
