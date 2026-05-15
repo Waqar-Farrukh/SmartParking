@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { motion } from 'framer-motion';
-import { Calendar, X } from 'lucide-react';
+import { Calendar, X, Clock } from 'lucide-react';
 
 const staggerContainer = {
   hidden: { opacity: 0 },
@@ -14,7 +14,8 @@ const itemAnim = {
 };
 
 export default function MyBookings() {
-  const { bookings, cancelReservation, refreshBookings } = useAppContext();
+  const { bookings, cancelReservation, refreshBookings, theme } = useAppContext();
+  const isDark = theme === 'dark';
 
   useEffect(() => {
     refreshBookings();
