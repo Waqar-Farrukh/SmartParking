@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800;900&display=swap');
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+@layer base {
+  body {
+    @apply bg-light-bg text-light-textPrimary transition-all duration-500 ease-in-out font-sans antialiased;
+    background-image: 
+      radial-gradient(circle at 0% 0%, rgba(194, 106, 90, 0.04) 0%, transparent 50%),
+      radial-gradient(circle at 100% 50%, rgba(108, 139, 138, 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 50% 100%, rgba(217, 161, 59, 0.02) 0%, transparent 50%);
+    background-attachment: fixed;
+  }
+  
+  .dark body {
+    @apply bg-dark-bg text-dark-textPrimary;
+    background-image: 
+      radial-gradient(circle at 100% 0%, rgba(0, 206, 209, 0.08) 0%, transparent 40%),
+      radial-gradient(circle at 0% 100%, rgba(225, 29, 72, 0.04) 0%, transparent 40%);
+  }
+}
+
+/* Premium Aesthetic Glassmorphism */
+.glass-panel {
+  @apply backdrop-blur-2xl border transition-all duration-300;
+  @apply bg-white/70 shadow-aesthetic;
+  border-color: #E5DFD7;
+  box-shadow: 
+    0 8px 40px -8px rgba(194, 106, 90, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.02),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.dark .glass-panel {
+  @apply bg-v3-slate/40 border-white/5 shadow-2xl;
+  box-shadow: 
+    0 8px 40px -8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* Spot UI */
+.spot-available {
+  @apply bg-v3-emerald border-none text-white shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer font-black;
+}
+
+.spot-occupied {
+  @apply bg-v3-ruby border-none text-white opacity-90 shadow-inner cursor-not-allowed filter grayscale-[0.2] transition-all;
+}
+
+.spot-selected {
+  @apply bg-v3-teal border-4 border-v3-slate dark:border-white text-v3-slate scale-110 shadow-vibrant z-10 transition-all font-black;
+}
+
+/* Form Inputs */
+.premium-input {
+  @apply w-full p-5 rounded-[1.5rem] transition-all outline-none font-bold text-sm;
+  @apply bg-white/60 focus:bg-white;
+  border: 1px solid #E5DFD7;
+}
+
+.premium-input:focus {
+  border-color: #C26A5A;
+  box-shadow: 0 0 0 4px rgba(194, 106, 90, 0.1);
+}
+
+.dark .premium-input {
+  @apply bg-black/40 border-transparent focus:bg-black/60 focus:ring-v3-teal/10 text-white;
+}
+
+/* Smooth Transitions */
+.page-transition {
+  @apply animate-fade-up;
+}
+
+/* Scrollbar aesthetic */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(194, 106, 90, 0.1);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(194, 106, 90, 0.2);
+}
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-white/10;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  @apply bg-white/20;
+}
