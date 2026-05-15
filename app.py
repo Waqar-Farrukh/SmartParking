@@ -270,8 +270,8 @@ def user_dashboard(user_id):
             history.append({
                 "id": r[0],
                 "spotId": r[1],
-                "startTime": r[2].isoformat() if r[2] else '',
-                "endTime": r[3].isoformat() if r[3] else '',
+                "startTime": (r[2].isoformat() + 'Z') if r[2] else '',
+                "endTime": (r[3].isoformat() + 'Z') if r[3] else '',
                 "status": r[4],
                 "finalPrice": float(r[5]) if r[5] else 0
             })
@@ -308,7 +308,7 @@ def get_user_violations(user_id):
                 "reservationId": r[1],
                 "fineAmount": float(r[2]),
                 "isPaid": bool(r[3]),
-                "createdAt": r[4].isoformat() if r[4] else ''
+                "createdAt": (r[4].isoformat() + 'Z') if r[4] else ''
             })
         return jsonify(violations)
     finally:
@@ -667,7 +667,7 @@ def admin_stats():
         daily_revenue = []
         for r in cursor.fetchall():
             daily_revenue.append({
-                "day": r[0].isoformat() if r[0] else '',
+                "day": (r[0].isoformat() + 'Z') if r[0] else '',
                 "revenue": float(r[1])
             })
 
@@ -720,7 +720,7 @@ def admin_stats():
         daily_bookings = []
         for r in cursor.fetchall():
             daily_bookings.append({
-                "day": r[0].isoformat() if r[0] else '',
+                "day": (r[0].isoformat() + 'Z') if r[0] else '',
                 "count": r[1]
             })
 
@@ -739,7 +739,7 @@ def admin_stats():
                 "reservationId": r[2],
                 "fineAmount": float(r[3]),
                 "isPaid": bool(r[4]),
-                "createdAt": r[5].isoformat() if r[5] else ''
+                "createdAt": (r[5].isoformat() + 'Z') if r[5] else ''
             })
 
         # Recent reservations for admin
@@ -754,11 +754,11 @@ def admin_stats():
                 "id": r[0],
                 "userName": r[1],
                 "spotId": r[2],
-                "startTime": r[3].isoformat() if r[3] else '',
-                "endTime": r[4].isoformat() if r[4] else '',
+                "startTime": (r[3].isoformat() + 'Z') if r[3] else '',
+                "endTime": (r[4].isoformat() + 'Z') if r[4] else '',
                 "status": r[5],
-                "finalPrice": float(r[6]) if r[6] else 0,
-                "createdAt": r[7].isoformat() if r[7] else ''
+                "price": float(r[6]),
+                "createdAt": (r[7].isoformat() + 'Z') if r[7] else ''
             })
 
         return jsonify({
@@ -817,7 +817,7 @@ def admin_users():
                 "walletBalance": float(r[5]) if r[5] else 0,
                 "referralCode": r[6],
                 "role": r[7] if r[7] else 'user',
-                "createdAt": r[8].isoformat() if r[8] else '',
+                "createdAt": (r[8].isoformat() + 'Z') if r[8] else '',
                 "points": r[9],
                 "lifetimePoints": r[10],
                 "totalBookings": r[11]

@@ -345,7 +345,7 @@ export default function AdminDashboard() {
                     <td className="p-6 font-display font-black dark:text-v3-teal text-xl" style={{ color: isDark ? '' : '#C26A5A' }}>{b.spotId}</td>
                     <td className="p-6 text-xs opacity-40 dark:text-white" style={{ color: isDark ? '' : '#6B6259' }}>{b.startTime ? new Date(b.startTime).toLocaleString() : ''}</td>
                     <td className="p-6 text-xs opacity-40 dark:text-white" style={{ color: isDark ? '' : '#6B6259' }}>{b.endTime ? new Date(b.endTime).toLocaleString() : ''}</td>
-                    <td className="p-6 font-display font-black dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{b.finalPrice} <span className="text-[10px] opacity-30">PKR</span></td>
+                    <td className="p-6 font-display font-black dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{b.price} <span className="text-[10px] opacity-30">PKR</span></td>
                     <td className="p-6 text-right">
                       <span className={`px-4 py-2 rounded-xl text-[10px] font-black tracking-widest uppercase ${
                         b.status === 'active' ? 'bg-v3-emerald/20 text-v3-emerald' :

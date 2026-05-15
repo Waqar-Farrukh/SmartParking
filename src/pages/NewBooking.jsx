@@ -19,7 +19,7 @@ export default function NewBooking() {
   const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
-  const [vehicle, setVehicle] = useState('v2');
+  const [vehicle, setVehicle] = useState(currentUser?.vehicle_type_id === 1 ? 'v1' : (currentUser?.vehicle_type_id === 2 ? 'v2' : 'v3'));
   const [entryTime, setEntryTime] = useState('');
   const [exitTime, setExitTime] = useState('');
   const [selectedZone, setSelectedZone] = useState('A');
@@ -129,11 +129,12 @@ export default function NewBooking() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16 px-2">
             {vehicleTypes.map(v => (
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={(vehicle === v.id) ? { scale: 1.05 } : {}}
+                  whileTap={(vehicle === v.id) ? { scale: 0.95 } : {}}
                   key={v.id}
+                  disabled={vehicle !== v.id}
                   onClick={() => setVehicle(v.id)}
-                  className={`p-10 rounded-[2.5rem] border-2 transition-all flex flex-col items-center justify-center gap-4 ${vehicle === v.id ? 'shadow-2xl scale-110 z-10' : 'opacity-40 grayscale'}`}
+                  className={`p-10 rounded-[2.5rem] border-2 transition-all flex flex-col items-center justify-center gap-4 ${vehicle === v.id ? 'shadow-2xl scale-110 z-10' : 'opacity-20 grayscale cursor-not-allowed'}`}
                   style={{
                     backgroundColor: vehicle === v.id ? (isDark ? 'rgba(0, 206, 209, 0.05)' : 'rgba(194, 106, 90, 0.05)') : 'transparent',
                     borderColor: vehicle === v.id ? (isDark ? '#00ced1' : '#C26A5A') : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)')
@@ -142,6 +143,7 @@ export default function NewBooking() {
                     <Car size={48} strokeWidth={2.5} className={vehicle === v.id ? (isDark ? 'text-v3-teal' : 'text-v3-indigo') : ''}/>
                     <span className="text-2xl font-black font-display dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{v.name}</span>
                     <span className="text-xs font-black uppercase tracking-widest opacity-60" style={{ color: isDark ? '' : '#6B6259' }}>{v.baseRate} PKR/hr</span>
+                    {vehicle !== v.id && <span className="text-[10px] font-black text-v3-ruby uppercase mt-1">Not Registered</span>}
                 </motion.button>
             ))}
           </div>
