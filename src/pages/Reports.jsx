@@ -11,7 +11,9 @@ export default function Reports() {
   const triggerDownload = async (type) => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/reports/${type}?sender_id=${currentUser.id}`);
+      const res = await fetch(`${API_BASE}/reports/${type}?sender_id=${currentUser.id}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       if (!res.ok) throw new Error('Download failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

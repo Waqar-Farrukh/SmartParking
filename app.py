@@ -680,9 +680,17 @@ def admin_stats():
         cursor.execute("SELECT COUNT(*) FROM Users")
         total_users = cursor.fetchone()[0]
 
-        # Active bookings
-        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'active'")
+        # Active bookings (actually currently parked)
+        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'active' AND end_time > GETUTCDATE()")
         active_bookings = cursor.fetchone()[0]
+
+        # Completed bookings
+        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'completed'")
+        completed_bookings = cursor.fetchone()[0]
+
+        # Cancelled bookings
+        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'cancelled'")
+        cancelled_bookings = cursor.fetchone()[0]
 
         # Total bookings
         cursor.execute("SELECT COUNT(*) FROM Reservations")
@@ -805,6 +813,8 @@ def admin_stats():
             "totalRevenue": total_revenue,
             "totalUsers": total_users,
             "activeBookings": active_bookings,
+            "completedBookings": completed_bookings,
+            "cancelledBookings": cancelled_bookings,
             "totalBookings": total_bookings,
             "totalViolations": total_violations,
             "unpaidViolations": unpaid_violations,

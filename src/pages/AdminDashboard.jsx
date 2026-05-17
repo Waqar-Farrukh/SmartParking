@@ -25,7 +25,7 @@ export default function AdminDashboard() {
   }, []);
 
   const stats = adminStats || {
-    totalRevenue: 0, totalUsers: 0, activeBookings: 0, totalBookings: 0,
+    totalRevenue: 0, totalUsers: 0, activeBookings: 0, completedBookings: 0, cancelledBookings: 0, totalBookings: 0,
     totalViolations: 0, unpaidViolations: 0,
     dailyRevenue: [], dailyBookings: [],
     zoneOccupancy: [], pricingState: [],
@@ -177,10 +177,12 @@ export default function AdminDashboard() {
 
       {activeTab === 'overview' && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-6">
             <KPI icon={<DollarSign size={28}/>} label="Total Revenue" value={`${stats.totalRevenue.toLocaleString()} PKR`} bg="bg-v3-emerald" trend={`${stats.totalBookings} total bookings`} isDark={isDark} />
             <KPI icon={<Users size={28}/>} label="Total Users" value={stats.totalUsers} bg="bg-v3-indigo" trend="Registered accounts" isDark={isDark} />
-            <KPI icon={<Car size={28}/>} label="Active Bookings" value={stats.activeBookings} bg="bg-v3-teal" trend={`of ${stats.totalBookings} total`} isDark={isDark} />
+            <KPI icon={<Car size={28}/>} label="Active Session" value={stats.activeBookings} bg="bg-v3-teal" trend="Parked right now" isDark={isDark} />
+            <KPI icon={<CheckCircle2 size={28}/>} label="Completed" value={stats.completedBookings} bg="bg-v3-emerald" trend="Finished sessions" isDark={isDark} />
+            <KPI icon={<XCircle size={28}/>} label="Cancelled" value={stats.cancelledBookings} bg="bg-v3-ruby" trend="User cancellations" isDark={isDark} />
             <KPI icon={<AlertTriangle size={28}/>} label="Violations" value={stats.totalViolations} bg="bg-v3-ruby" trend={`${stats.unpaidViolations} unpaid`} isDark={isDark} />
           </div>
 
