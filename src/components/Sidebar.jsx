@@ -20,7 +20,7 @@ export default function Sidebar() {
     { name: 'Reports', path: '/reports', icon: <FileText size={20} /> },
   ];
 
-  const links = isAdmin ? [...userLinks, ...adminLinks] : userLinks;
+  const links = isAdmin ? adminLinks : userLinks;
 
   return (
     <div className="w-80 h-full flex flex-col p-8 backdrop-blur-xl z-20 bg-white/80 dark:bg-v3-slate border-r border-light-border dark:border-white/5 shadow-aesthetic lg:shadow-none">

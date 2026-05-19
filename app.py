@@ -623,6 +623,7 @@ def get_leaderboard():
             SELECT TOP 10 u.user_id, u.name, lp.points, lp.lifetime_points
             FROM Users u
             JOIN Loyalty_Points lp ON u.user_id = lp.user_id
+            WHERE u.role != 'admin'
             ORDER BY lp.points DESC
         """)
         users = []
@@ -634,8 +635,8 @@ def get_leaderboard():
                 "lifetimePoints": r[3]
             })
 
-        # Get total count
-        cursor.execute("SELECT COUNT(*) FROM Users")
+        # Get total count (excluding admins)
+        cursor.execute("SELECT COUNT(*) FROM Users WHERE role != 'admin'")
         total = cursor.fetchone()[0]
 
         return jsonify({"leaderboard": users, "totalUsers": total})
@@ -873,6 +874,146 @@ def admin_users():
                 "totalBookings": r[11]
             })
         return jsonify({"users": users, "totalCount": len(users)})
+    finally:
+        conn.close()
+
+@app.route('/api/admin/users/<int:user_id>', methods=['PATCH'])
+def update_user_admin(user_id):
+    sender_id = request.args.get('sender_id')
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    data = request.json
+    name = data.get('name')
+    phone = data.get('phone')
+    plate = data.get('vehiclePlate')
+    role = data.get('role')
+    points = data.get('points')
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        # Update User fields
+        cursor.execute("""
+            UPDATE Users SET name = ?, phone = ?, vehicle_plate = ?, role = ?
+            WHERE user_id = ?
+        """, (name, phone, plate, role, user_id))
+        
+        # Update points if provided
+        if points is not None:
+            cursor.execute("UPDATE Loyalty_Points SET points = ? WHERE user_id = ?", (points, user_id))
+            
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
+def delete_user_admin(user_id):
+    sender_id = request.args.get('sender_id')
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        # 1. Delete Violations linked to user's reservations
+        cursor.execute("DELETE FROM Violations WHERE reservation_id IN (SELECT reservation_id FROM Reservations WHERE user_id = ?)", (user_id,))
+        # 2. Delete Reservations
+        cursor.execute("DELETE FROM Reservations WHERE user_id = ?", (user_id,))
+        # 3. Delete related logs
+        cursor.execute("DELETE FROM Loyalty_Points WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM Transactions WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM Wallet_Transactions WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM Discounts WHERE user_id = ?", (user_id,))
+        # 4. Delete User
+        cursor.execute("DELETE FROM Users WHERE user_id = ?", (user_id,))
+        
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/admin/spots', methods=['POST'])
+def add_spot():
+    sender_id = request.args.get('sender_id')
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    data = request.json
+    spot_id = data.get('spotId') # e.g. "A11"
+    zone_id = data.get('zoneId') # e.g. "A"
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO Parking_Spots (spot_id, zone_id, is_active) VALUES (?, ?, 1)", (spot_id, zone_id))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/admin/spots/<spot_id>', methods=['DELETE'])
+def delete_spot(spot_id):
+    sender_id = request.args.get('sender_id')
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        # Check if spot has ever been used (reservations)
+        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE spot_id = ?", (spot_id,))
+        if cursor.fetchone()[0] > 0:
+            # Safer to de-activate rather than delete if history exists
+            cursor.execute("UPDATE Parking_Spots SET is_active = 0 WHERE spot_id = ?", (spot_id,))
+            return jsonify({"status": "success", "message": "Spot had history, so it was de-activated instead of deleted."})
+        
+        cursor.execute("DELETE FROM Parking_Spots WHERE spot_id = ?", (spot_id,))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/admin/spots/<spot_id>/status', methods=['PATCH'])
+def toggle_spot_status(spot_id):
+    sender_id = request.args.get('sender_id')
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    data = request.json
+    active = 1 if data.get('active') else 0
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE Parking_Spots SET is_active = ? WHERE spot_id = ?", (active, spot_id))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/admin/zones/<zone_id>/status', methods=['PATCH'])
+def toggle_zone_status(zone_id):
+    sender_id = request.args.get('sender_id')
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    data = request.json
+    active = 1 if data.get('active') else 0
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE Parking_Spots SET is_active = ? WHERE zone_id = ?", (active, zone_id))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 

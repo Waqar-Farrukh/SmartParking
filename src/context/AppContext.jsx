@@ -274,6 +274,116 @@ export function AppProvider({ children }) {
     } catch (err) { console.error('refreshAdminUsers:', err); }
   }, [currentUser?.id]);
 
+  const updateUserAdmin = async (userId, updateData) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}?sender_id=${currentUser.id}`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: JSON.stringify(updateData)
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        await refreshAdminUsers();
+        return true;
+      }
+      return false;
+    } catch (err) { console.error('updateUserAdmin:', err); return false; }
+  };
+
+  const deleteUserAdmin = async (userId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}?sender_id=${currentUser.id}`, {
+        method: 'DELETE',
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        await refreshAdminUsers();
+        return true;
+      }
+      return false;
+    } catch (err) { console.error('deleteUserAdmin:', err); return false; }
+  };
+
+  const addParkingSpot = async (spotId, zoneId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/spots?sender_id=${currentUser.id}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: JSON.stringify({ spotId, zoneId })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        await refreshSpots();
+        await refreshAdminStats();
+        return true;
+      }
+      return false;
+    } catch (err) { console.error('addParkingSpot:', err); return false; }
+  };
+
+  const deleteParkingSpot = async (spotId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/spots/${spotId}?sender_id=${currentUser.id}`, {
+        method: 'DELETE',
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        await refreshSpots();
+        await refreshAdminStats();
+        return true;
+      }
+      return false;
+    } catch (err) { console.error('deleteParkingSpot:', err); return false; }
+  };
+
+  const toggleZoneStatus = async (zoneId, active) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/zones/${zoneId}/status?sender_id=${currentUser.id}`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: JSON.stringify({ active })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        await refreshSpots();
+        await refreshAdminStats();
+        return true;
+      }
+      return false;
+    } catch (err) { console.error('toggleZoneStatus:', err); return false; }
+  };
+
+  const toggleSpotStatus = async (spotId, active) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/spots/${spotId}/status?sender_id=${currentUser.id}`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: JSON.stringify({ active })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        await refreshSpots();
+        await refreshAdminStats();
+        return true;
+      }
+      return false;
+    } catch (err) { console.error('toggleSpotStatus:', err); return false; }
+  };
+
   // ===== AUTH =====
   const login = async (email, password) => {
     setLoading(true);
@@ -395,6 +505,7 @@ export function AppProvider({ children }) {
     refreshAdminUsers, checkHealth,
     payFine, triggerOverstays, cancelReservation,
     addWallet, redeemPoints,
+    updateUserAdmin, deleteUserAdmin, addParkingSpot, deleteParkingSpot, toggleZoneStatus, toggleSpotStatus,
     API_BASE
   };
 
