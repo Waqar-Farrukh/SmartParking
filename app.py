@@ -1082,6 +1082,13 @@ def add_spot():
     conn = get_db()
     try:
         cursor = conn.cursor()
+        
+        # Enforce max 20 spots per zone constraint
+        cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ?", (zone_id,))
+        count = cursor.fetchone()[0]
+        if count >= 20:
+            return jsonify({"status": "error", "message": f"Maximum capacity reached. Zone {zone_id} cannot exceed 20 spots."}), 400
+            
         cursor.execute("INSERT INTO Parking_Spots (spot_id, zone_id, is_active) VALUES (?, ?, 1)", (spot_id, zone_id))
         return jsonify({"status": "success"})
     except Exception as e:

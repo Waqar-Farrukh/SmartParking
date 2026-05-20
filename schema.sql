@@ -59,6 +59,24 @@ CREATE TABLE Parking_Spots (
 );
 GO
 
+CREATE TRIGGER trg_MaxSpotsPerZone
+ON Parking_Spots
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    IF EXISTS (
+        SELECT zone_id
+        FROM Parking_Spots
+        GROUP BY zone_id
+        HAVING COUNT(*) > 20
+    )
+    BEGIN
+        RAISERROR ('Maximum capacity reached. A zone cannot have more than 20 parking spots.', 16, 1);
+        ROLLBACK TRANSACTION;
+    END
+END;
+GO
+
 -- 2.4 Reservations
 CREATE TABLE Reservations (
     reservation_id INT IDENTITY PRIMARY KEY,
