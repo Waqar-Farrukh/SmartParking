@@ -653,17 +653,26 @@ export default function AdminDashboard() {
                 <div className="space-y-4">
                    <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Zone ID</label>
-                      <div className="flex gap-2">
-                         {['A', 'B', 'C'].map(z => (
-                           <button 
-                             key={z} 
-                             onClick={() => setNewSpot({...newSpot, zone: z})}
-                             className={`flex-1 py-3 rounded-xl font-black transition-all ${newSpot.zone === z ? 'bg-v3-indigo text-white shadow-lg' : 'bg-black/5 dark:bg-white/5 opacity-40 dark:text-white'}`}
-                           >
-                             Zone {z}
-                           </button>
-                         ))}
-                      </div>
+                      <div className="flex flex-col gap-3">
+                          <div className="flex gap-2">
+                             {['A', 'B', 'C'].map(z => (
+                               <button 
+                                 key={z} 
+                                 onClick={() => setNewSpot({...newSpot, zone: z})}
+                                 className={`flex-1 py-3 rounded-xl font-black transition-all ${newSpot.zone === z ? 'bg-v3-indigo text-white shadow-lg' : 'bg-black/5 dark:bg-white/5 opacity-40 dark:text-white'}`}
+                               >
+                                 Zone {z}
+                               </button>
+                             ))}
+                          </div>
+                          <input 
+                            type="text" 
+                            placeholder="Or enter new Zone (e.g. A12)" 
+                            value={newSpot.zone}
+                            onChange={(e) => setNewSpot({...newSpot, zone: e.target.value.toUpperCase()})}
+                            className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-black text-xs text-center focus:ring-2 ring-v3-indigo dark:text-white placeholder:opacity-30"
+                          />
+                       </div>
                    </div>
                    <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Spot Identifier</label>

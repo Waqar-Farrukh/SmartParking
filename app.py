@@ -788,13 +788,16 @@ def admin_stats():
 
         # Zone occupancy
         zone_occupancy = []
-        for zone_id in ['A', 'B', 'C']:
+        cursor.execute("SELECT DISTINCT zone_id FROM Parking_Spots")
+        all_zones = [r[0] for r in cursor.fetchall()]
+
+        for zone_id in sorted(all_zones):
             cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
             total_in_zone = cursor.fetchone()[0]
             cursor.execute("""
-                SELECT COUNT(DISTINCT spot_id) FROM Reservations 
-                WHERE spot_id IN (SELECT spot_id FROM Parking_Spots WHERE zone_id = ?)
-                AND status = 'active' AND end_time > GETUTCDATE()
+                SELECT COUNT(DISTINCT s.spot_id) FROM Reservations r
+                JOIN Parking_Spots s ON r.spot_id = s.spot_id
+                WHERE s.zone_id = ? AND r.status = 'active'
             """, (zone_id,))
             occupied_in_zone = cursor.fetchone()[0]
             zone_occupancy.append({
@@ -806,13 +809,13 @@ def admin_stats():
 
         # Dynamic pricing state per zone
         pricing_state = []
-        for zone_id in ['A', 'B', 'C']:
+        for zone_id in sorted(all_zones):
             cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
             total_spots = cursor.fetchone()[0]
             cursor.execute("""
-                SELECT COUNT(DISTINCT spot_id) FROM Reservations 
-                WHERE spot_id IN (SELECT spot_id FROM Parking_Spots WHERE zone_id = ?)
-                AND status = 'active' AND end_time > GETUTCDATE()
+                SELECT COUNT(DISTINCT s.spot_id) FROM Reservations r
+                JOIN Parking_Spots s ON r.spot_id = s.spot_id
+                WHERE s.zone_id = ? AND r.status = 'active'
             """, (zone_id,))
             occ = cursor.fetchone()[0]
             occupancy_pct = (occ / total_spots * 100) if total_spots > 0 else 0
