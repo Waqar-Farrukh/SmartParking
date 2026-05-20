@@ -789,23 +789,37 @@ def admin_stats():
         # Zone occupancy - Dynamic Zone Detection
         zone_occupancy = []
         cursor.execute("SELECT DISTINCT zone_id FROM Parking_Spots")
-        found_zones = [r[0] for r in cursor.fetchall()]
+        found_zones = [str(r[0]) for r in cursor.fetchall()]
         
+        running_active_count = 0
         for zone_id in sorted(found_zones):
-            cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
+            # Count ALL spots in zone to ensure it show up even if fully offline
+            cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ?", (zone_id,))
             total_in_zone = cursor.fetchone()[0]
+            
+            # Count only ACTIVE (occupied) spots
             cursor.execute("""
-                SELECT COUNT(DISTINCT s.spot_id) FROM Reservations r
+                SELECT COUNT(DISTINCT r.spot_id) FROM Reservations r
                 JOIN Parking_Spots s ON r.spot_id = s.spot_id
                 WHERE s.zone_id = ? AND r.status = 'active'
             """, (zone_id,))
             occupied_in_zone = cursor.fetchone()[0]
+            running_active_count += occupied_in_zone
+            
+            # Check if zone is online (at least one spot active)
+            cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
+            online_spots = cursor.fetchone()[0]
+            
             zone_occupancy.append({
                 "zone": zone_id,
                 "total": total_in_zone,
+                "online": online_spots,
                 "occupied": occupied_in_zone,
                 "available": total_in_zone - occupied_in_zone
             })
+
+        # Override active_bookings with the actual sum from spots to ensure 100% UI consistency
+        active_bookings = running_active_count
 
         # Dynamic pricing state per zone
         pricing_state = []
@@ -1104,13 +1118,13 @@ def toggle_zone_status(zone_id):
         # RESTRICTION: Check for active bookings in entire zone
         if not active:
             cursor.execute("""
-                SELECT COUNT(*) FROM Reservations 
+                SELECT spot_id FROM Reservations 
                 WHERE spot_id IN (SELECT spot_id FROM Parking_Spots WHERE zone_id = ?)
                 AND status = 'active'
             """, (zone_id,))
-            count = cursor.fetchone()[0]
-            if count > 0:
-                return jsonify({"status": "error", "message": f"Cannot deactivate Zone {zone_id}. It has {count} active booking(s) currently."}), 400
+            active_spots = [r[0] for r in cursor.fetchall()]
+            if active_spots:
+                return jsonify({"status": "error", "message": f"Cannot deactivate Zone {zone_id}. The following spots are still occupied: {', '.join(active_spots)}"}), 400
 
         cursor.execute("UPDATE Parking_Spots SET is_active = ? WHERE zone_id = ?", (active, zone_id))
         return jsonify({"status": "success"})
