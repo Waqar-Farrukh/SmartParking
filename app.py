@@ -889,15 +889,16 @@ def update_user_admin(user_id):
     plate = data.get('vehiclePlate')
     role = data.get('role')
     points = data.get('points')
+    wallet = data.get('walletBalance')
 
     conn = get_db()
     try:
         cursor = conn.cursor()
         # Update User fields
         cursor.execute("""
-            UPDATE Users SET name = ?, phone = ?, vehicle_plate = ?, role = ?
+            UPDATE Users SET name = ?, phone = ?, vehicle_plate = ?, role = ?, wallet_balance = ?
             WHERE user_id = ?
-        """, (name, phone, plate, role, user_id))
+        """, (name, phone, plate, role, wallet, user_id))
         
         # Update points if provided
         if points is not None:

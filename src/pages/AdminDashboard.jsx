@@ -541,23 +541,52 @@ export default function AdminDashboard() {
                       </div>
                    </div>
 
-                   <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Loyalty Points</label>
-                        <input type="number" value={editingUser.points} onChange={e => setEditingUser({...editingUser, points: parseInt(e.target.value)})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-bold text-sm dark:text-v3-gold focus:ring-2 ring-v3-teal" />
+                   <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Loyalty Points Management</label>
+                        <div className="bg-v3-gold/5 dark:bg-v3-gold/10 p-5 rounded-3xl border border-v3-gold/20 shadow-sm">
+                           <input type="number" value={editingUser.points} onChange={e => setEditingUser({...editingUser, points: parseInt(e.target.value) || 0})} className="w-full bg-transparent border-none font-black text-2xl text-v3-gold outline-none p-0 mb-4" />
+                           <div className="grid grid-cols-3 gap-2">
+                             {[100, 500, 1000].map(amt => (
+                               <button key={amt} onClick={() => setEditingUser({...editingUser, points: editingUser.points + amt})} className="py-2 rounded-xl bg-v3-gold text-white font-black text-[10px] hover:scale-105 active:scale-95 transition-all shadow-sm">+{amt}</button>
+                             ))}
+                             {[100, 500, 1000].map(amt => ( // Corrected logic: subtract amt
+                               <button key={`minus-${amt}`} onClick={() => setEditingUser({...editingUser, points: Math.max(0, editingUser.points - amt)})} className="py-2 rounded-xl bg-white dark:bg-black/20 border border-v3-gold text-v3-gold font-black text-[10px] hover:scale-105 active:scale-95 transition-all shadow-sm">-{amt}</button>
+                             ))}
+                           </div>
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">User Role</label>
-                        <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-black text-xs uppercase tracking-widest dark:text-white focus:ring-2 ring-v3-teal">
-                           <option value="user">Normal User</option>
-                           <option value="admin">Administrator</option>
-                        </select>
+
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Wallet Balance Management</label>
+                        <div className="bg-v3-teal/5 dark:bg-v3-teal/10 p-5 rounded-3xl border border-v3-teal/20 shadow-sm">
+                           <div className="flex items-center gap-1">
+                             <input type="number" value={editingUser.walletBalance} onChange={e => setEditingUser({...editingUser, walletBalance: parseFloat(e.target.value) || 0})} className="w-full bg-transparent border-none font-black text-2xl dark:text-white outline-none p-0 mb-4" />
+                             <span className="text-[10px] font-black opacity-30 mt-[-1rem]">PKR</span>
+                           </div>
+                           <div className="grid grid-cols-3 gap-2">
+                             {[100, 500, 1000].map(amt => (
+                               <button key={amt} onClick={() => setEditingUser({...editingUser, walletBalance: editingUser.walletBalance + amt})} className="py-2 rounded-xl bg-v3-teal text-v3-slate font-black text-[10px] hover:scale-105 active:scale-95 transition-all shadow-sm">+{amt}</button>
+                             ))}
+                             {[100, 500, 1000].map(amt => (
+                               <button key={`minus-${amt}`} onClick={() => setEditingUser({...editingUser, walletBalance: Math.max(0, editingUser.walletBalance - amt)})} className="py-2 rounded-xl bg-white dark:bg-black/20 border border-v3-teal text-v3-teal font-black text-[10px] hover:scale-105 active:scale-95 transition-all shadow-sm">-{amt}</button>
+                             ))}
+                           </div>
+                        </div>
                       </div>
                    </div>
 
+                   <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">User Role</label>
+                      <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-black text-xs uppercase tracking-widest dark:text-white focus:ring-2 ring-v3-teal">
+                          <option value="user">Normal User</option>
+                          <option value="admin">Administrator</option>
+                      </select>
+                   </div>
+
                    <div className="flex gap-4 pt-6">
-                      <button onClick={saveUserEdit} className="flex-1 py-4 bg-v3-teal text-v3-slate font-black text-xs uppercase tracking-widest rounded-2xl shadow-vibrant hover:scale-[1.02] transition-all">Save Changes</button>
-                      <button onClick={() => setEditingUser(null)} className="flex-1 py-4 bg-white/5 border border-white/10 font-black text-xs uppercase tracking-widest rounded-2xl dark:text-white hover:bg-v3-ruby/10 hover:text-v3-ruby transition-all">Cancel</button>
+                      <button onClick={saveUserEdit} className="flex-1 py-4 bg-gray-900 text-white dark:bg-v3-teal dark:text-v3-slate font-black text-xs uppercase tracking-widest rounded-2xl shadow-vibrant hover:scale-[1.02] transition-all">Save Changes</button>
+                      <button onClick={() => setEditingUser(null)} className="flex-1 py-4 bg-white/5 border border-black/10 dark:border-white/10 font-black text-xs uppercase tracking-widest rounded-2xl dark:text-white hover:bg-v3-ruby/10 hover:text-v3-ruby transition-all">Cancel</button>
                    </div>
                 </div>
              </motion.div>
