@@ -788,9 +788,14 @@ def admin_stats():
                 "revenue": float(r[1])
             })
 
+        from datetime import datetime, timezone
+        time_now = datetime.now(timezone.utc)
+
         # Data Fix: Ensure A12 is in Zone A
         cursor.execute("UPDATE Parking_Spots SET zone_id = 'A' WHERE spot_id = 'A12' AND zone_id = 'C'")
         
+        # Zone occupancy - Dynamic Zone Detection
+        zone_occupancy = []
         cursor.execute("SELECT DISTINCT zone_id FROM Parking_Spots")
         found_zones = [str(r[0]).strip() for r in cursor.fetchall()]
         
