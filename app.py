@@ -747,8 +747,8 @@ def admin_stats():
         cursor.execute("SELECT COUNT(*) FROM Users")
         total_users = cursor.fetchone()[0]
 
-        # Active bookings (actually currently parked)
-        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'active' AND end_time > GETUTCDATE()")
+        # Active bookings (actually currently parked/occupying a spot)
+        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'active'")
         active_bookings = cursor.fetchone()[0]
 
         # Completed bookings
@@ -1072,10 +1072,11 @@ def toggle_spot_status(spot_id):
         if not active:
             cursor.execute("""
                 SELECT COUNT(*) FROM Reservations 
-                WHERE spot_id = ? AND status = 'active' AND end_time > GETUTCDATE()
+                WHERE spot_id = ? AND status = 'active'
             """, (spot_id,))
-            if cursor.fetchone()[0] > 0:
-                return jsonify({"status": "error", "message": f"Cannot take spot {spot_id} offline. It has active reservations."}), 400
+            count = cursor.fetchone()[0]
+            if count > 0:
+                return jsonify({"status": "error", "message": f"Cannot take spot {spot_id} offline. It has {count} active reservation(s)."}), 400
 
         cursor.execute("UPDATE Parking_Spots SET is_active = ? WHERE spot_id = ?", (active, spot_id))
         return jsonify({"status": "success"})
@@ -1102,10 +1103,11 @@ def toggle_zone_status(zone_id):
             cursor.execute("""
                 SELECT COUNT(*) FROM Reservations 
                 WHERE spot_id IN (SELECT spot_id FROM Parking_Spots WHERE zone_id = ?)
-                AND status = 'active' AND end_time > GETUTCDATE()
+                AND status = 'active'
             """, (zone_id,))
-            if cursor.fetchone()[0] > 0:
-                return jsonify({"status": "error", "message": f"Cannot take Zone {zone_id} offline. It has active reservations."}), 400
+            count = cursor.fetchone()[0]
+            if count > 0:
+                return jsonify({"status": "error", "message": f"Cannot deactivate Zone {zone_id}. It has {count} active booking(s) currently."}), 400
 
         cursor.execute("UPDATE Parking_Spots SET is_active = ? WHERE zone_id = ?", (active, zone_id))
         return jsonify({"status": "success"})
