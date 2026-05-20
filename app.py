@@ -836,7 +836,7 @@ def admin_stats():
             cursor.execute("""
                 SELECT COUNT(DISTINCT s.spot_id) FROM Reservations r
                 JOIN Parking_Spots s ON r.spot_id = s.spot_id
-                WHERE s.zone_id = ? AND r.status = 'active'
+                WHERE s.zone_id = ? AND r.status = 'active' AND r.end_time > GETUTCDATE()
             """, (zone_id,))
             occ = cursor.fetchone()[0]
             occupancy_pct = (occ / total_spots * 100) if total_spots > 0 else 0
