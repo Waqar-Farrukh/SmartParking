@@ -111,9 +111,9 @@ def register():
     new_ref = name[:3].upper() + str(int(time.time()) % 1000)
 
     import re
-    if phone and not re.match(r'^\d{11}$', str(phone)):
+    if not re.match(r'^\d{11}$', str(phone)):
         return jsonify({"status": "error", "message": "Phone number must be exactly 11 digits."}), 400
-    if plate and not re.match(r'^[A-Za-z]{3}-\d{3}$', str(plate)):
+    if not re.match(r'^[A-Za-z]{3}-\d{3}$', str(plate)):
         return jsonify({"status": "error", "message": "Vehicle plate must be in format ABC-123."}), 400
     
     conn = get_db()
@@ -999,9 +999,9 @@ def update_user_admin(user_id):
     wallet = data.get('walletBalance')
     v_type = data.get('vehicleTypeId') # New field
 
-    if phone and not re.match(r'^\d{11}$', str(phone)):
+    if not re.match(r'^\d{11}$', str(phone)):
         return jsonify({"status": "error", "message": "Phone number must be exactly 11 digits."}), 400
-    if plate and not re.match(r'^[A-Za-z]{3}-\d{3}$', str(plate)):
+    if not re.match(r'^[A-Za-z]{3}-\d{3}$', str(plate)):
         return jsonify({"status": "error", "message": "Vehicle plate must be in format ABC-123."}), 400
 
     conn = get_db()

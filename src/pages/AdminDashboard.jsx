@@ -134,13 +134,13 @@ export default function AdminDashboard() {
 
   const saveUserEdit = async () => {
     const phoneRegex = /^\d{11}$/;
-    if (editingUser.phone && !phoneRegex.test(editingUser.phone)) {
+    if (!phoneRegex.test(editingUser.phone)) {
       alert('Phone number must be exactly 11 digits (e.g., 03001234567).');
       return;
     }
 
     const plateRegex = /^[A-Za-z]{3}-\d{3}$/;
-    if (editingUser.vehiclePlate && !plateRegex.test(editingUser.vehiclePlate)) {
+    if (!plateRegex.test(editingUser.vehiclePlate)) {
       alert('Vehicle plate must be exactly 7 characters in format ABC-123.');
       return;
     }
