@@ -163,13 +163,15 @@ def get_spots():
 
         spots = []
         for r in rows:
+            sid = str(r[0]).strip()
+            zid = str(r[1]).strip()
             if r[2] == 0:
                 status = "unavailable"
-            elif r[0] in occupied:
+            elif sid in occupied:
                 status = "occupied"
             else:
                 status = "available"
-            spots.append({"id": r[0], "zone": r[1], "status": status})
+            spots.append({"id": sid, "zone": zid, "status": status})
         return jsonify(spots)
     finally:
         conn.close()
@@ -748,7 +750,7 @@ def admin_stats():
         total_users = cursor.fetchone()[0]
 
         # Active bookings (actually currently parked/occupying a spot)
-        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'active'")
+        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'active' AND end_time > GETUTCDATE()")
         active_bookings = cursor.fetchone()[0]
 
         # Completed bookings
@@ -789,19 +791,19 @@ def admin_stats():
         # Zone occupancy - Dynamic Zone Detection
         zone_occupancy = []
         cursor.execute("SELECT DISTINCT zone_id FROM Parking_Spots")
-        found_zones = [str(r[0]) for r in cursor.fetchall()]
+        found_zones = [str(r[0]).strip() for r in cursor.fetchall()]
         
         running_active_count = 0
-        for zone_id in sorted(found_zones):
+        for zone_id in sorted(list(set(found_zones))):
             # Count ALL spots in zone to ensure it show up even if fully offline
             cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ?", (zone_id,))
             total_in_zone = cursor.fetchone()[0]
             
-            # Count only ACTIVE (occupied) spots
+            # Count only ACTIVE (occupied) spots - time restricted
             cursor.execute("""
                 SELECT COUNT(DISTINCT r.spot_id) FROM Reservations r
                 JOIN Parking_Spots s ON r.spot_id = s.spot_id
-                WHERE s.zone_id = ? AND r.status = 'active'
+                WHERE s.zone_id = ? AND r.status = 'active' AND r.end_time > GETUTCDATE()
             """, (zone_id,))
             occupied_in_zone = cursor.fetchone()[0]
             running_active_count += occupied_in_zone
@@ -1120,9 +1122,9 @@ def toggle_zone_status(zone_id):
             cursor.execute("""
                 SELECT spot_id FROM Reservations 
                 WHERE spot_id IN (SELECT spot_id FROM Parking_Spots WHERE zone_id = ?)
-                AND status = 'active'
+                AND status = 'active' AND end_time > GETUTCDATE()
             """, (zone_id,))
-            active_spots = [r[0] for r in cursor.fetchall()]
+            active_spots = [str(r[0]).strip() for r in cursor.fetchall()]
             if active_spots:
                 return jsonify({"status": "error", "message": f"Cannot deactivate Zone {zone_id}. The following spots are still occupied: {', '.join(active_spots)}"}), 400
 
