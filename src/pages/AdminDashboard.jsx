@@ -274,6 +274,44 @@ export default function AdminDashboard() {
                 </div>
             </motion.div>
           </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            <motion.div variants={itemAnim} initial="hidden" animate="show" className="glass-panel rounded-[2.5rem] p-8 flex flex-col">
+                <div className="flex justify-between items-center mb-8">
+                    <h2 className="text-xl font-black font-display flex items-center gap-3 dark:text-v3-teal" style={{ color: isDark ? '' : '#C26A5A' }}><BarChart3 size={24}/> Weekly Bookings</h2>
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white" style={{ color: isDark ? '' : '#A39B93' }}>Last 7 Days</span>
+                </div>
+                <div className="flex-1 min-h-[280px]">
+                    <Bar data={bookingsData} options={chartOptions} />
+                </div>
+            </motion.div>
+
+            <motion.div variants={itemAnim} initial="hidden" animate="show" className="glass-panel rounded-[2.5rem] p-8 flex flex-col">
+                <div className="flex items-center gap-3 mb-8">
+                    <Zap className="dark:text-v3-emerald" style={{ color: isDark ? '' : '#6C8B8A' }} size={24}/>
+                    <h2 className="text-xl font-black font-display dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>Dynamic Parking Surge</h2>
+                </div>
+                <div className="space-y-4 max-h-[280px] overflow-y-auto pr-2 scrollbar-thin">
+                  {(stats.pricingState || []).map((zone, idx) => (
+                    <div key={idx} className="p-4 rounded-2xl bg-white/50 dark:bg-black/20 border border-gray-100 dark:border-white/5 flex items-center justify-between" style={{ borderColor: isDark ? '' : '#E5DFD7' }}>
+                       <div>
+                          <p className="font-display font-black text-lg dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>Zone {zone.zone}</p>
+                          <p className="text-xs font-bold opacity-60 dark:text-white" style={{ color: isDark ? '' : '#6B6259' }}>{zone.occupancyPercent}% Occupied (Cap: 80%)</p>
+                       </div>
+                       <div className="text-right flex flex-col gap-1 items-end">
+                          <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${zone.surgeActive ? 'bg-v3-ruby/10 text-v3-ruby' : 'bg-v3-emerald/10 text-v3-emerald'}`}>
+                            {zone.surgeActive ? 'Surge Active' : 'Normal Rate'}
+                          </span>
+                          {zone.surgeActive && <span className="text-[9px] font-black uppercase text-v3-ruby opacity-80 leading-none">Dynamic parking implemented</span>}
+                       </div>
+                    </div>
+                  ))}
+                  {(!stats.pricingState || stats.pricingState.length === 0) && (
+                    <p className="font-display font-black opacity-20 text-center dark:text-white pt-10" style={{ color: isDark ? '' : '#A39B93' }}>No pricing data</p>
+                  )}
+                </div>
+            </motion.div>
+          </div>
         </>
       )}
 
@@ -343,9 +381,13 @@ export default function AdminDashboard() {
                        <p className="text-[10px] mt-1 opacity-40 dark:text-white" style={{ color: isDark ? '' : '#A39B93' }}>{u.phone || 'No Phone'}</p>
                     </td>
                     <td className="p-6">
-                      <div className="flex flex-col">
+                      <div className="flex flex-col gap-1">
                         <span className="font-display font-black text-sm dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{u.walletBalance} <span className="text-[10px] opacity-40 uppercase tracking-widest">PKR</span></span>
-                        <span className="text-[10px] font-black text-v3-gold uppercase tracking-widest">{u.points} Points</span>
+                        {u.role !== 'admin' ? (
+                          <span className="text-[10px] font-black text-v3-gold uppercase tracking-widest">{u.points} Points</span>
+                        ) : (
+                          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest opacity-50">—</span>
+                        )}
                       </div>
                     </td>
                     <td className="p-6">

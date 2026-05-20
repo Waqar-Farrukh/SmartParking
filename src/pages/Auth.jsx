@@ -31,6 +31,19 @@ export default function Auth() {
         setError('Fields missing. Please complete all required entries.');
         return;
       }
+      
+      const phoneRegex = /^\d{11}$/;
+      if (!phoneRegex.test(formData.phone)) {
+        setError('Phone number must be exactly 11 digits (e.g., 03001234567).');
+        return;
+      }
+
+      const plateRegex = /^[A-Za-z]{3}-\d{3}$/;
+      if (!plateRegex.test(formData.vehiclePlate)) {
+        setError('Vehicle plate must be exactly 7 characters in format ABC-123.');
+        return;
+      }
+
       const result = await register(formData);
       if (result === true) {
         navigate('/dashboard');
