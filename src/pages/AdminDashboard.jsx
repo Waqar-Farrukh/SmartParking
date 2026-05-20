@@ -22,7 +22,8 @@ export default function AdminDashboard() {
   const { 
     adminStats, refreshAdminStats, adminUsers, refreshAdminUsers, 
     dbHealth, checkHealth, theme, currentUser, spots,
-    updateUserAdmin, deleteUserAdmin, addParkingSpot, deleteParkingSpot, toggleZoneStatus, toggleSpotStatus
+    updateUserAdmin, deleteUserAdmin, addParkingSpot, deleteParkingSpot, toggleZoneStatus, toggleSpotStatus,
+    deleteViolationAdmin, markViolationPaidAdmin
   } = useAppContext();
   
   const [activeTab, setActiveTab] = useState('overview');
