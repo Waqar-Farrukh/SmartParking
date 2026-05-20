@@ -788,16 +788,21 @@ def admin_stats():
                 "revenue": float(r[1])
             })
 
-        # Zone occupancy - Dynamic Zone Detection
-        zone_occupancy = []
+        # Data Fix: Ensure A12 is in Zone A
+        cursor.execute("UPDATE Parking_Spots SET zone_id = 'A' WHERE spot_id = 'A12' AND zone_id = 'C'")
+        
         cursor.execute("SELECT DISTINCT zone_id FROM Parking_Spots")
         found_zones = [str(r[0]).strip() for r in cursor.fetchall()]
         
         running_active_count = 0
         for zone_id in sorted(list(set(found_zones))):
-            # Count ALL spots in zone to ensure it show up even if fully offline
+            # Count ALL spots in zone 
             cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ?", (zone_id,))
             total_in_zone = cursor.fetchone()[0]
+            
+            # Check if zone is online (count only naturally active spots)
+            cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
+            online_spots = cursor.fetchone()[0]
             
             # Count only ACTIVE (occupied) spots - time restricted
             cursor.execute("""
@@ -808,16 +813,12 @@ def admin_stats():
             occupied_in_zone = cursor.fetchone()[0]
             running_active_count += occupied_in_zone
             
-            # Check if zone is online (at least one spot active)
-            cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
-            online_spots = cursor.fetchone()[0]
-            
             zone_occupancy.append({
                 "zone": zone_id,
                 "total": total_in_zone,
                 "online": online_spots,
                 "occupied": occupied_in_zone,
-                "available": total_in_zone - occupied_in_zone
+                "available": max(0, online_spots - occupied_in_zone)
             })
 
         # Override active_bookings with the actual sum from spots to ensure 100% UI consistency
