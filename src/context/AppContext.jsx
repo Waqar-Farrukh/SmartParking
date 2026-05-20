@@ -384,6 +384,36 @@ export function AppProvider({ children }) {
     } catch (err) { console.error('toggleSpotStatus:', err); return false; }
   };
 
+  const deleteViolationAdmin = async (vId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/violations/${vId}?sender_id=${currentUser.id}`, {
+        method: 'DELETE',
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        await refreshAdminStats();
+        return true;
+      }
+      return false;
+    } catch (err) { console.error('deleteViolationAdmin:', err); return false; }
+  };
+
+  const markViolationPaidAdmin = async (vId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/violations/${vId}/pay?sender_id=${currentUser.id}`, {
+        method: 'PATCH',
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        await refreshAdminStats();
+        return true;
+      }
+      return false;
+    } catch (err) { console.error('markViolationPaidAdmin:', err); return false; }
+  };
+
   // ===== AUTH =====
   const login = async (email, password) => {
     setLoading(true);
@@ -452,6 +482,41 @@ export function AppProvider({ children }) {
     return false;
   };
 
+  const checkIn = async (resId) => {
+    try {
+      const res = await fetch(`${API_BASE}/parking/arrive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+        body: JSON.stringify({ reservationId: resId })
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        await refreshDashboard();
+        await refreshBookings();
+        return true;
+      }
+      return false;
+    } catch (e) { console.error(e); return false; }
+  };
+
+  const checkOut = async (resId) => {
+    try {
+      const res = await fetch(`${API_BASE}/parking/leave`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+        body: JSON.stringify({ reservationId: resId })
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        await refreshDashboard();
+        await refreshBookings();
+        await refreshViolations();
+        return true;
+      }
+      return false;
+    } catch (e) { console.error(e); return false; }
+  };
+
   const logout = () => {
     setCurrentUser(null);
     setDashboardData({ wallet: 0, points: 0, lifetimePoints: 0, referralCode: '', history: [] });
@@ -500,12 +565,14 @@ export function AppProvider({ children }) {
     ],
     login, register, logout, bookSpot, loading,
     theme, toggleTheme,
+    checkIn, checkOut,
     refreshSpots, refreshDashboard, refreshViolations, refreshWallet,
     refreshLoyalty, refreshBookings, refreshLeaderboard, refreshAdminStats,
     refreshAdminUsers, checkHealth,
     payFine, triggerOverstays, cancelReservation,
     addWallet, redeemPoints,
     updateUserAdmin, deleteUserAdmin, addParkingSpot, deleteParkingSpot, toggleZoneStatus, toggleSpotStatus,
+    deleteViolationAdmin, markViolationPaidAdmin,
     API_BASE
   };
 

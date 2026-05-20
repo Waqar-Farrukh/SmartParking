@@ -210,6 +210,10 @@ def book_spot():
         start_dt = datetime.fromisoformat(start.replace('Z', ''))
         end_dt = datetime.fromisoformat(end.replace('Z', ''))
         diff = (end_dt - start_dt).total_seconds() / 3600.0
+        
+        if diff > 4.0:
+            return jsonify({"status": "error", "message": "Maximum booking duration is 4 hours."}), 400
+            
         hours = max(1.0, round(diff, 2))
 
         # Handle Discount Code
@@ -238,9 +242,9 @@ def book_spot():
         # Deduct from wallet
         cursor.execute("UPDATE Users SET wallet_balance = wallet_balance - ? WHERE user_id = ?", (final_price, user_id))
 
-        # Create reservation
+        # Create reservation (initially as 'reserved', not 'active')
         cursor.execute(
-            "INSERT INTO Reservations (user_id, spot_id, start_time, end_time, status, final_price, points_earned) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+            "INSERT INTO Reservations (user_id, spot_id, start_time, end_time, status, final_price, points_earned) VALUES (?, ?, ?, ?, 'reserved', ?, ?)",
             (user_id, spot_id, start, end, final_price, points_earned)
         )
 
@@ -290,6 +294,9 @@ def user_dashboard(user_id):
     conn = get_db()
     try:
         cursor = conn.cursor()
+        # Note: We no longer auto-complete sessions here. 
+        # A session stays 'active' until the user manually leaves.
+        
         cursor.execute("SELECT wallet_balance, referral_code FROM Users WHERE user_id = ?", (user_id,))
         user_row = cursor.fetchone()
         wallet = float(user_row[0]) if user_row else 0
@@ -300,6 +307,7 @@ def user_dashboard(user_id):
         points = lp_row[0] if lp_row else 0
         lifetime_points = lp_row[1] if lp_row else 0
 
+        # Return reservations with statuses: reserved, active, completed, etc.
         cursor.execute(
             "SELECT TOP 5 reservation_id, spot_id, start_time, end_time, status, final_price FROM Reservations WHERE user_id = ? ORDER BY reservation_id DESC",
             (user_id,)
@@ -612,6 +620,62 @@ def cancel_booking(user_id):
     finally:
         conn.close()
 
+# ===== ARRIVAL & DEPARTURE =====
+
+@app.route('/api/parking/arrive', methods=['POST'])
+def check_in():
+    data = request.json
+    res_id = data.get('reservationId')
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE Reservations SET status = 'active' WHERE reservation_id = ?", (res_id,))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/parking/leave', methods=['POST'])
+def check_out():
+    data = request.json
+    res_id = data.get('reservationId')
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        # Get reservation details
+        cursor.execute("SELECT end_time, user_id FROM Reservations WHERE reservation_id = ?", (res_id,))
+        res = cursor.fetchone()
+        if not res:
+            return jsonify({"status": "error", "message": "Reservation not found"}), 404
+            
+        end_time = res[0]
+        user_id = res[1]
+        
+        # Check for Overstay Fine
+        from datetime import datetime
+        now = datetime.utcnow()
+        if now > end_time:
+            # Calculate hours over
+            hours_over = max(1, int((now - end_time).total_seconds() / 3600))
+            fine = 100 + (50 * hours_over)
+            
+            # Create the violation record
+            cursor.execute(
+                "INSERT INTO Violations (reservation_id, fine_amount, is_paid) VALUES (?, ?, 0)",
+                (res_id, fine)
+            )
+        
+        # Mark as completed
+        cursor.execute("UPDATE Reservations SET status = 'completed' WHERE reservation_id = ?", (res_id,))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
 # ===== LEADERBOARD =====
 
 @app.route('/api/leaderboard', methods=['GET'])
@@ -672,6 +736,8 @@ def admin_stats():
     conn = get_db()
     try:
         cursor = conn.cursor()
+        from datetime import datetime
+        time_now = datetime.utcnow()
 
         # Total revenue
         cursor.execute("SELECT ISNULL(SUM(final_price), 0) FROM Reservations WHERE status != 'cancelled'")
@@ -799,13 +865,18 @@ def admin_stats():
         """)
         recent_bookings = []
         for r in cursor.fetchall():
+            res_status = r[5]
+            # Dynamic completion check
+            if res_status == 'active' and r[4] and r[4] < time_now:
+                res_status = 'completed'
+                
             recent_bookings.append({
                 "id": r[0],
                 "userName": r[1],
                 "spotId": r[2],
                 "startTime": (r[3].isoformat() + 'Z') if r[3] else '',
                 "endTime": (r[4].isoformat() + 'Z') if r[4] else '',
-                "status": r[5],
+                "status": res_status,
                 "finalPrice": float(r[6]) if r[6] else 0,
                 "createdAt": (r[7].isoformat() + 'Z') if r[7] else ''
             })
@@ -843,7 +914,8 @@ def admin_users():
             cursor.execute("""
                 SELECT u.user_id, u.name, u.email, u.phone, u.vehicle_plate, u.wallet_balance, u.referral_code, u.role, u.created_at,
                        ISNULL(lp.points, 0) as points, ISNULL(lp.lifetime_points, 0) as lifetime_points,
-                       (SELECT COUNT(*) FROM Reservations WHERE user_id = u.user_id) as total_bookings
+                       (SELECT COUNT(*) FROM Reservations WHERE user_id = u.user_id) as total_bookings,
+                       u.vehicle_type_id
                 FROM Users u
                 LEFT JOIN Loyalty_Points lp ON u.user_id = lp.user_id
                 ORDER BY u.created_at DESC
@@ -852,7 +924,8 @@ def admin_users():
             cursor.execute("""
                 SELECT u.user_id, u.name, u.email, u.phone, u.vehicle_plate, u.wallet_balance, u.referral_code, 'user' as role, u.created_at,
                        ISNULL(lp.points, 0) as points, ISNULL(lp.lifetime_points, 0) as lifetime_points,
-                       (SELECT COUNT(*) FROM Reservations WHERE user_id = u.user_id) as total_bookings
+                       (SELECT COUNT(*) FROM Reservations WHERE user_id = u.user_id) as total_bookings,
+                       2 as vehicle_type_id
                 FROM Users u
                 LEFT JOIN Loyalty_Points lp ON u.user_id = lp.user_id
                 ORDER BY u.created_at DESC
@@ -871,7 +944,8 @@ def admin_users():
                 "createdAt": (r[8].isoformat() + 'Z') if r[8] else '',
                 "points": r[9],
                 "lifetimePoints": r[10],
-                "totalBookings": r[11]
+                "totalBookings": r[11],
+                "vehicleTypeId": r[12]
             })
         return jsonify({"users": users, "totalCount": len(users)})
     finally:
@@ -890,15 +964,16 @@ def update_user_admin(user_id):
     role = data.get('role')
     points = data.get('points')
     wallet = data.get('walletBalance')
+    v_type = data.get('vehicleTypeId') # New field
 
     conn = get_db()
     try:
         cursor = conn.cursor()
         # Update User fields
         cursor.execute("""
-            UPDATE Users SET name = ?, phone = ?, vehicle_plate = ?, role = ?, wallet_balance = ?
+            UPDATE Users SET name = ?, phone = ?, vehicle_plate = ?, role = ?, wallet_balance = ?, vehicle_type_id = ?
             WHERE user_id = ?
-        """, (name, phone, plate, role, wallet, user_id))
+        """, (name, phone, plate, role, wallet, v_type, user_id))
         
         # Update points if provided
         if points is not None:
@@ -992,6 +1067,16 @@ def toggle_spot_status(spot_id):
     conn = get_db()
     try:
         cursor = conn.cursor()
+        
+        # RESTRICTION: Check for active bookings
+        if not active:
+            cursor.execute("""
+                SELECT COUNT(*) FROM Reservations 
+                WHERE spot_id = ? AND status = 'active' AND end_time > GETUTCDATE()
+            """, (spot_id,))
+            if cursor.fetchone()[0] > 0:
+                return jsonify({"status": "error", "message": f"Cannot take spot {spot_id} offline. It has active reservations."}), 400
+
         cursor.execute("UPDATE Parking_Spots SET is_active = ? WHERE spot_id = ?", (active, spot_id))
         return jsonify({"status": "success"})
     except Exception as e:
@@ -1011,7 +1096,52 @@ def toggle_zone_status(zone_id):
     conn = get_db()
     try:
         cursor = conn.cursor()
+        
+        # RESTRICTION: Check for active bookings in entire zone
+        if not active:
+            cursor.execute("""
+                SELECT COUNT(*) FROM Reservations 
+                WHERE spot_id IN (SELECT spot_id FROM Parking_Spots WHERE zone_id = ?)
+                AND status = 'active' AND end_time > GETUTCDATE()
+            """, (zone_id,))
+            if cursor.fetchone()[0] > 0:
+                return jsonify({"status": "error", "message": f"Cannot take Zone {zone_id} offline. It has active reservations."}), 400
+
         cursor.execute("UPDATE Parking_Spots SET is_active = ? WHERE zone_id = ?", (active, zone_id))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
+# ===== ADMIN VIOLATIONS =====
+
+@app.route('/api/admin/violations/<int:v_id>', methods=['DELETE'])
+def delete_violation(v_id):
+    sender_id = request.args.get('sender_id')
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM Violations WHERE violation_id = ?", (v_id,))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/admin/violations/<int:v_id>/pay', methods=['PATCH'])
+def mark_violation_paid(v_id):
+    sender_id = request.args.get('sender_id')
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE Violations SET is_paid = 1 WHERE violation_id = ?", (v_id,))
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400

@@ -408,21 +408,31 @@ export default function AdminDashboard() {
                       </button>
                     </div>
                     <div className="flex flex-wrap gap-2 mt-4">
-                       {spots.filter(s => s.zone === zone.zone).map(spot => (
-                         <button 
-                           key={spot.id}
-                           onClick={() => toggleSpotStatus(spot.id, spot.status === 'unavailable' ? true : false)}
-                           className={`px-3 py-2 rounded-lg font-mono font-bold text-[10px] transition-all border ${
-                            spot.status === 'unavailable' 
-                              ? 'bg-v3-ruby/5 border-v3-ruby/20 text-v3-ruby opacity-60' 
-                              : 'bg-white dark:bg-white/5 border-gray-100 dark:border-white/10 dark:text-white hover:border-v3-teal'
-                           }`}
-                           title={`Click to ${spot.status === 'unavailable' ? 'enable' : 'disable'} ${spot.id}`}
-                         >
-                           {spot.id}
-                           <div className={`w-1 h-1 rounded-full mx-auto mt-1 ${spot.status === 'unavailable' ? 'bg-v3-ruby' : 'bg-v3-emerald'}`}></div>
-                         </button>
-                       ))}
+                       {spots.filter(s => s.zone === zone.zone).map(spot => {
+                         const isOccupied = spot.status === 'occupied';
+                         const isOffline = spot.status === 'unavailable';
+                         
+                         return (
+                           <button 
+                             key={spot.id}
+                             onClick={() => toggleSpotStatus(spot.id, isOffline ? true : false)}
+                             className={`px-4 py-3 rounded-2xl font-mono font-black text-xs transition-all border shadow-sm relative min-w-[120px] flex flex-col items-center gap-1 ${
+                               isOffline 
+                                 ? 'bg-blue-500/10 border-blue-500/30 text-blue-600' 
+                                 : isOccupied
+                                   ? 'bg-v3-ruby/10 border-v3-ruby/30 text-v3-ruby'
+                                   : 'bg-white dark:bg-white/5 border-gray-100 dark:border-white/10 dark:text-white hover:border-v3-teal'
+                             }`}
+                             title={isOffline ? `Click to enable ${spot.id}` : (isOccupied ? 'Currently Occupied' : `Click to disable ${spot.id}`)}
+                           >
+                             <span className="text-sm">{spot.id}</span>
+                             <span className="text-[8px] uppercase tracking-tighter opacity-80">
+                               {isOffline ? 'Offline now' : (isOccupied ? 'Reserved vehicle parked here' : 'Available')}
+                             </span>
+                             <div className={`w-2 h-2 rounded-full absolute top-2 right-2 ${isOffline ? 'bg-blue-500' : (isOccupied ? 'bg-v3-ruby' : 'bg-v3-emerald')}`}></div>
+                           </button>
+                         );
+                       })}
                     </div>
                   </div>
                 ))}
@@ -503,7 +513,30 @@ export default function AdminDashboard() {
                     <td className="py-6 px-6 font-mono opacity-50 dark:text-white" style={{ color: isDark ? '' : '#6B6259' }}>#{v.reservationId}</td>
                     <td className="py-6 px-6 font-black font-display text-xl dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{v.fineAmount} <span className="text-[10px] opacity-40">PKR</span></td>
                     <td className="py-6 px-6 text-right">
-                      <span className={`px-4 py-2 rounded-xl text-[10px] font-black tracking-widest uppercase ${v.isPaid ? 'bg-v3-emerald/20 text-v3-emerald' : 'bg-v3-ruby/20 text-v3-ruby'}`}>{v.isPaid ? 'PAID' : 'PENDING'}</span>
+                       <div className="flex justify-end gap-3 items-center">
+                          {!v.isPaid && (
+                            <button 
+                              onClick={async () => await markViolationPaidAdmin(v.id)}
+                              className="px-4 py-2 bg-v3-emerald/10 text-v3-emerald rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-v3-emerald hover:text-white transition-all shadow-sm"
+                            >
+                              Mark Paid
+                            </button>
+                          )}
+                          <button 
+                            onClick={async () => {
+                              if(window.confirm("Forgive this violation? It will be permanently removed.")) {
+                                await deleteViolationAdmin(v.id);
+                              }
+                            }}
+                            className="p-2.5 bg-white dark:bg-white/5 border border-v3-ruby/20 rounded-xl text-v3-ruby hover:bg-v3-ruby hover:text-white transition-all shadow-sm"
+                            title="Forgive Violation"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                          <span className={`px-4 py-2 rounded-xl text-[10px] font-black tracking-widest uppercase ${v.isPaid ? 'bg-v3-emerald/20 text-v3-emerald' : 'bg-v3-ruby/20 text-v3-ruby'}`}>
+                            {v.isPaid ? 'PAID' : 'PENDING'}
+                          </span>
+                       </div>
                     </td>
                   </tr>
                 ))}
@@ -576,13 +609,23 @@ export default function AdminDashboard() {
                       </div>
                    </div>
 
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">User Role</label>
-                      <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-black text-xs uppercase tracking-widest dark:text-white focus:ring-2 ring-v3-teal">
-                          <option value="user">Normal User</option>
-                          <option value="admin">Administrator</option>
-                      </select>
-                   </div>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">User Role</label>
+                          <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-black text-xs uppercase tracking-widest dark:text-white focus:ring-2 ring-v3-teal">
+                              <option value="user">Normal User</option>
+                              <option value="admin">Administrator</option>
+                          </select>
+                       </div>
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Vehicle Type</label>
+                          <select value={editingUser.vehicleTypeId} onChange={e => setEditingUser({...editingUser, vehicleTypeId: parseInt(e.target.value)})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-black text-xs uppercase tracking-widest dark:text-white focus:ring-2 ring-v3-teal">
+                              <option value={1}>Bike (v1)</option>
+                              <option value={2}>Car (v2)</option>
+                              <option value={3}>SUV (v3)</option>
+                          </select>
+                       </div>
+                    </div>
 
                    <div className="flex gap-4 pt-6">
                       <button onClick={saveUserEdit} className="flex-1 py-4 bg-gray-900 text-white dark:bg-v3-teal dark:text-v3-slate font-black text-xs uppercase tracking-widest rounded-2xl shadow-vibrant hover:scale-[1.02] transition-all">Save Changes</button>

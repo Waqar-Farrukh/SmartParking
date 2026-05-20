@@ -15,32 +15,64 @@ const itemAnim = {
 };
 
 export default function Dashboard() {
-  const { currentUser, reservations, refreshDashboard } = useAppContext();
+  const { currentUser, reservations, refreshDashboard, checkIn, checkOut } = useAppContext();
   const navigate = useNavigate();
-  const [activeReservation, setActiveReservation] = useState(null);
+  const [session, setSession] = useState(null);
   const [timeLeft, setTimeLeft] = useState('');
+  const [isOverstay, setIsOverstay] = useState(false);
 
   useEffect(() => {
     refreshDashboard();
   }, []);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !reservations) return;
     const now = new Date();
-    const active = (reservations || []).find(r => r.status === 'active' && new Date(r.endTime) > now);
-    setActiveReservation(active || null);
+    
+    // 1. Priority: Find current 'active' session (even if expired)
+    let primary = (reservations || []).find(r => r.status === 'active');
+    
+    // 2. Secondary: Nearest upcoming 'reserved' session
+    if (!primary) {
+      primary = (reservations || [])
+        .filter(r => r.status === 'reserved' && new Date(r.endTime) > now)
+        .sort((a,b) => new Date(a.startTime) - new Date(b.startTime))[0];
+    }
 
-    if (active) {
+    setSession(primary || null);
+
+    if (primary) {
       const interval = setInterval(() => {
-        const diff = new Date(active.endTime) - new Date();
-        if (diff <= 0) {
-          setTimeLeft('Expired');
-          clearInterval(interval);
-        } else {
-          const h = Math.floor(diff / 3600000);
-          const m = Math.floor((diff % 3600000) / 60000);
-          const s = Math.floor((diff % 60000) / 1000);
-          setTimeLeft(`${h}h ${m}m ${s}s`);
+        const currentTime = new Date();
+        const start = new Date(primary.startTime);
+        const end = new Date(primary.endTime);
+
+        if (primary.status === 'reserved') {
+          if (currentTime < start) {
+            setTimeLeft(`Starting in ${Math.floor((start - currentTime)/60000)}m`);
+            setIsOverstay(false);
+          } else {
+            setTimeLeft('Ready for Arrival');
+            setIsOverstay(false);
+          }
+        } else if (primary.status === 'active') {
+          if (currentTime > end) {
+            // Counting UP (overstay)
+            const diff = currentTime - end;
+            const h = Math.floor(diff / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            setTimeLeft(`Overstaying: ${h}h ${m}m ${s}s`);
+            setIsOverstay(true);
+          } else {
+            // Counting DOWN (normal)
+            const diff = end - currentTime;
+            const h = Math.floor(diff / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            setTimeLeft(`Ends in ${h}h ${m}m ${s}s`);
+            setIsOverstay(false);
+          }
         }
       }, 1000);
       return () => clearInterval(interval);
@@ -101,41 +133,96 @@ export default function Dashboard() {
             sub="Network rewards"
         />
         <KPI
-            title="Active Sessions"
-            value={(reservations || []).filter(r => r.status === 'active').length}
+            title="Registry Status"
+            value={(reservations || []).filter(r => r.status === 'active' || r.status === 'reserved').length}
             icon={<Car size={32} />}
             color="bg-v3-indigo"
             colorHex="#C26A5A"
-            sub="Current sessions"
+            sub="Upcoming & Live"
         />
       </motion.div>
 
-      {/* Active Reservation Banner */}
+      {/* Violation Alert */}
+      {violations.filter(v => !v.isPaid).length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          onClick={() => navigate('/violations')}
+          className="p-6 bg-v3-ruby/10 border border-v3-ruby/20 rounded-[2rem] flex items-center justify-between cursor-pointer hover:bg-v3-ruby/20 transition-all shadow-lg mb-10"
+        >
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-v3-ruby text-white rounded-full">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <p className="font-display font-black text-xl text-v3-ruby">Unpaid Violations Detected</p>
+              <p className="text-xs font-bold opacity-60 text-v3-ruby">You have {violations.filter(v => !v.isPaid).length} pending fine(s). Please clear them to avoid account restrictions.</p>
+            </div>
+          </div>
+          <ArrowRight className="text-v3-ruby" />
+        </motion.div>
+      )}
+
+      {/* Smart Action Banner */}
       <AnimatePresence>
-      {activeReservation && (
+      {session && (
         <motion.div
             variants={itemAnim}
             initial="hidden"
             animate="show"
             exit={{ opacity: 0, scale: 0.95 }}
-            className="group relative overflow-hidden rounded-[4rem] p-12 md:p-16 flex flex-col md:flex-row justify-between items-center gap-12 dark:bg-white dark:text-v3-slate"
-            style={{ backgroundColor: '#2C2A29', color: '#FFFFFF', boxShadow: '0 50px 100px rgba(44,42,41,0.3)' }}
+            className={`group relative overflow-hidden rounded-[4rem] p-12 md:p-16 flex flex-col md:flex-row justify-between items-center gap-12 transition-colors duration-500`}
+            style={{ 
+              backgroundColor: isOverstay ? '#9F1239' : (session.status === 'reserved' ? '#3B82F6' : '#2C2A29'), 
+              color: '#FFFFFF', 
+              boxShadow: '0 50px 100px rgba(0,0,0,0.3)' 
+            }}
         >
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none"></div>
-          <div className="flex items-center gap-10 z-10 w-full md:w-auto">
-            <div className="p-8 rounded-[2.5rem] animate-vibrant-pulse shadow-inner dark:text-v3-indigo" style={{ backgroundColor: 'rgba(194,106,90,0.2)', color: '#C26A5A' }}>
+          <div className="flex flex-col md:flex-row items-center gap-10 z-10 w-full">
+            <div className={`p-8 rounded-[2.5rem] ${isOverstay ? 'animate-vibrant-pulse bg-white/20' : 'bg-white/10'}`}>
               <Car size={48} strokeWidth={3} />
             </div>
-            <div>
-              <h3 className="text-[10px] font-black uppercase tracking-[0.4em] mb-3 leading-none opacity-40">Active Session</h3>
-              <div className="text-6xl font-black font-display tracking-tight leading-none mb-4">
-                {activeReservation.spotId} <span className="opacity-10 mx-2">/</span> {timeLeft}
+            <div className="flex-1">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.4em] mb-3 leading-none opacity-60">
+                {session.status === 'reserved' ? 'Upcoming Reservation' : (isOverstay ? 'Violation Tracking Active' : 'Live Parking Session')}
+              </h3>
+              <div className="text-5xl font-black font-display tracking-tight leading-none mb-4">
+                {session.spotId} <span className="opacity-20 mx-2">/</span> {timeLeft}
               </div>
-              <div className="flex gap-6 opacity-60 font-bold text-xs uppercase tracking-[0.2em]">
-                <span>Arrival: {new Date(activeReservation.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                <span className="opacity-20">•</span>
-                <span>Exit: {new Date(activeReservation.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-              </div>
+              <p className="opacity-60 font-bold text-xs uppercase tracking-[0.2em]">
+                {session.status === 'reserved' 
+                   ? `Valid between ${new Date(session.startTime).toLocaleTimeString()} - ${new Date(session.endTime).toLocaleTimeString()}`
+                   : `Reserved until ${new Date(session.endTime).toLocaleTimeString()}`
+                }
+              </p>
+            </div>
+            
+            <div className="z-10 w-full md:w-auto">
+              {session.status === 'reserved' ? (
+                <button 
+                  onClick={() => checkIn(session.id)}
+                  disabled={new Date() < new Date(session.startTime)}
+                  className={`px-12 py-6 rounded-[2rem] font-display font-black text-sm uppercase tracking-widest transition-all ${
+                    new Date() < new Date(session.startTime) 
+                      ? 'bg-white/10 border border-white/20 text-white/40 cursor-not-allowed' 
+                      : 'bg-white text-blue-600 hover:scale-105 active:scale-95 shadow-2xl'
+                  }`}
+                >
+                  {new Date() < new Date(session.startTime) ? 'Wait for Start' : 'Confirm Arrival'}
+                </button>
+              ) : (
+                <button 
+                  onClick={() => {
+                    if(window.confirm(isOverstay ? "Finalize session? Overstay fees will be added." : "End session now?")) {
+                      checkOut(session.id);
+                    }
+                  }}
+                  className="px-12 py-6 bg-white text-v3-slate rounded-[2rem] font-display font-black text-sm uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-2xl"
+                >
+                  Confirm Departure
+                </button>
+              )}
             </div>
           </div>
         </motion.div>
