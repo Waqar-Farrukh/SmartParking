@@ -133,6 +133,18 @@ export default function AdminDashboard() {
   };
 
   const saveUserEdit = async () => {
+    const phoneRegex = /^\d{11}$/;
+    if (editingUser.phone && !phoneRegex.test(editingUser.phone)) {
+      alert('Phone number must be exactly 11 digits (e.g., 03001234567).');
+      return;
+    }
+
+    const plateRegex = /^[A-Za-z]{3}-\d{3}$/;
+    if (editingUser.vehiclePlate && !plateRegex.test(editingUser.vehiclePlate)) {
+      alert('Vehicle plate must be exactly 7 characters in format ABC-123.');
+      return;
+    }
+
     const success = await updateUserAdmin(editingUser.id, editingUser);
     if (success) setEditingUser(null);
     else alert("Failed to update user");
@@ -623,14 +635,18 @@ export default function AdminDashboard() {
                 <h2 className="text-3xl font-black font-display tracking-tighter mb-8 dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>Edit User <span className="text-v3-teal">Profile.</span></h2>
                 
                 <div className="space-y-6">
-                   <div className="grid grid-cols-2 gap-4">
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Full Name</label>
                         <input type="text" value={editingUser.name} onChange={e => setEditingUser({...editingUser, name: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-bold text-sm dark:text-white focus:ring-2 ring-v3-teal" />
                       </div>
                       <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Phone Number</label>
+                        <input type="text" value={editingUser.phone || ''} onChange={e => setEditingUser({...editingUser, phone: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-bold text-sm dark:text-white focus:ring-2 ring-v3-teal" />
+                      </div>
+                      <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Vehicle Plate</label>
-                        <input type="text" value={editingUser.vehiclePlate} onChange={e => setEditingUser({...editingUser, vehiclePlate: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-bold text-sm dark:text-white focus:ring-2 ring-v3-teal font-mono uppercase" />
+                        <input type="text" value={editingUser.vehiclePlate || ''} onChange={e => setEditingUser({...editingUser, vehiclePlate: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-bold text-sm dark:text-white focus:ring-2 ring-v3-teal font-mono uppercase" />
                       </div>
                    </div>
 

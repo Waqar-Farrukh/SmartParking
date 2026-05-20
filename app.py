@@ -110,6 +110,12 @@ def register():
     h_pass = hash_password(password)
     new_ref = name[:3].upper() + str(int(time.time()) % 1000)
 
+    import re
+    if phone and not re.match(r'^\d{11}$', str(phone)):
+        return jsonify({"status": "error", "message": "Phone number must be exactly 11 digits."}), 400
+    if plate and not re.match(r'^[A-Za-z]{3}-\d{3}$', str(plate)):
+        return jsonify({"status": "error", "message": "Vehicle plate must be in format ABC-123."}), 400
+    
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -979,6 +985,7 @@ def admin_users():
 
 @app.route('/api/admin/users/<int:user_id>', methods=['PATCH'])
 def update_user_admin(user_id):
+    import re
     sender_id = request.args.get('sender_id')
     if not is_admin(sender_id):
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
@@ -991,6 +998,11 @@ def update_user_admin(user_id):
     points = data.get('points')
     wallet = data.get('walletBalance')
     v_type = data.get('vehicleTypeId') # New field
+
+    if phone and not re.match(r'^\d{11}$', str(phone)):
+        return jsonify({"status": "error", "message": "Phone number must be exactly 11 digits."}), 400
+    if plate and not re.match(r'^[A-Za-z]{3}-\d{3}$', str(plate)):
+        return jsonify({"status": "error", "message": "Vehicle plate must be in format ABC-123."}), 400
 
     conn = get_db()
     try:
