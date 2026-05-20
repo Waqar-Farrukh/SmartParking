@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wallet, Star, Car, ArrowRight, CalendarDays, Zap, ShieldCheck } from 'lucide-react';
+import { Wallet, Star, Car, ArrowRight, CalendarDays, Zap, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -15,7 +15,7 @@ const itemAnim = {
 };
 
 export default function Dashboard() {
-  const { currentUser, reservations, refreshDashboard, checkIn, checkOut } = useAppContext();
+  const { currentUser, reservations, violations, refreshDashboard, checkIn, checkOut } = useAppContext();
   const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const [timeLeft, setTimeLeft] = useState('');
