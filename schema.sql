@@ -13,7 +13,6 @@ PRINT '--- RESETTING DATABASE STARTED ---';
 -- ====================================================================
 -- 0. Clean Up (Order matters for Foreign Keys!)
 -- ====================================================================
-DROP FUNCTION IF EXISTS dbo.GetDynamicRate;
 DROP TABLE IF EXISTS Wallet_Transactions;
 DROP TABLE IF EXISTS Discounts;
 DROP TABLE IF EXISTS Transactions;
@@ -224,45 +223,6 @@ VALUES
 (2, 160.00, 'book', 'Booking spot A01', DATEADD(DAY, -1, GETUTCDATE())),
 (3, 1000.00, 'add', 'Promotional Balance Added', DATEADD(DAY, -1, GETUTCDATE())),
 (5, 2500.00, 'add', 'Initial Deposit', DATEADD(DAY, -5, GETUTCDATE()));
-GO
-
--- ====================================================================
--- 4. Dynamic Pricing Function
--- ====================================================================
-CREATE FUNCTION dbo.GetDynamicRate(
-    @zone CHAR(1),
-    @start DATETIME,
-    @end DATETIME,
-    @vehicle INT
-)
-RETURNS DECIMAL(10,2)
-AS
-BEGIN
-    DECLARE @base DECIMAL(10,2);
-    
-    SELECT @base = base_rate FROM Vehicle_Types WHERE type_id = @vehicle;
-    
-    RETURN @base * 
-        CASE 
-            WHEN (
-                SELECT COUNT(DISTINCT r.spot_id)
-                FROM Reservations r
-                JOIN Parking_Spots p ON r.spot_id = p.spot_id
-                WHERE p.zone_id = @zone
-                  AND r.status = 'active'
-                  AND r.start_time < @end
-                  AND r.end_time > @start
-            ) > 0.8 * (SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = @zone AND is_active = 1)
-            THEN 1.2
-            ELSE 1.0
-        END;
-END;
-GO
-
--- ====================================================================
--- 5. Test
--- ====================================================================
-SELECT dbo.GetDynamicRate('A', GETDATE(), DATEADD(hour, 2, GETDATE()), 2) AS TestRate;
 GO
 
 select * from USERS;

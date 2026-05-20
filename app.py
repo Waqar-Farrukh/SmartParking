@@ -237,7 +237,26 @@ def book_spot():
             else:
                 return jsonify({"status": "error", "message": "Invalid or already used discount code."}), 400
 
-        rate = cursor.execute("SELECT dbo.GetDynamicRate(?, ?, ?, ?)", (zone, start, end, v_type)).fetchval()
+        # Python-based Dynamic Pricing Replacement
+        cursor.execute("SELECT base_rate FROM Vehicle_Types WHERE type_id = ?", (v_type,))
+        base_rate = float(cursor.fetchone()[0])
+        
+        cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone,))
+        total_zone_spots = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT r.spot_id)
+            FROM Reservations r
+            JOIN Parking_Spots p ON r.spot_id = p.spot_id
+            WHERE p.zone_id = ?
+              AND r.status = 'active'
+              AND r.start_time < ?
+              AND r.end_time > ?
+        """, (zone, end, start))
+        active_overlapping = cursor.fetchone()[0]
+        
+        rate = base_rate * 1.2 if active_overlapping > 0.8 * total_zone_spots else base_rate
+        
         final_price = max(0.0, (float(rate) * hours if rate else 80.0 * hours) - discount_amount)
         points_earned = int(final_price * 10)
 

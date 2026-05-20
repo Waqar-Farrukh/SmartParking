@@ -642,11 +642,11 @@ export default function AdminDashboard() {
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Phone Number</label>
-                        <input type="text" value={editingUser.phone || ''} onChange={e => setEditingUser({...editingUser, phone: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-bold text-sm dark:text-white focus:ring-2 ring-v3-teal" />
+                        <input type="text" maxLength={11} value={editingUser.phone || ''} onChange={e => setEditingUser({...editingUser, phone: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-bold text-sm dark:text-white focus:ring-2 ring-v3-teal" />
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest opacity-40 dark:text-white">Vehicle Plate</label>
-                        <input type="text" value={editingUser.vehiclePlate || ''} onChange={e => setEditingUser({...editingUser, vehiclePlate: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-bold text-sm dark:text-white focus:ring-2 ring-v3-teal font-mono uppercase" />
+                        <input type="text" maxLength={7} value={editingUser.vehiclePlate || ''} onChange={e => setEditingUser({...editingUser, vehiclePlate: e.target.value})} className="w-full p-4 rounded-xl bg-black/5 dark:bg-white/5 border-none font-bold text-sm dark:text-white focus:ring-2 ring-v3-teal font-mono uppercase" />
                       </div>
                    </div>
 

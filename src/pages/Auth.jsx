@@ -122,8 +122,8 @@ export default function Auth() {
                     <LoginInput label="Full Name" name="name" icon={<User size={18}/>} value={formData.name} onChange={handleChange} required />
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <LoginInput label="Phone Number" name="phone" icon={<Phone size={18}/>} value={formData.phone} onChange={handleChange} required />
-                        <LoginInput label="Vehicle Plate Number" name="vehiclePlate" value={formData.vehiclePlate} onChange={handleChange} required />
+                        <LoginInput label="Phone Number" name="phone" icon={<Phone size={18}/>} value={formData.phone} onChange={handleChange} required maxLength={11} />
+                        <LoginInput label="Vehicle Plate Number" name="vehiclePlate" value={formData.vehiclePlate} onChange={handleChange} required maxLength={7} />
                     </div>
 
                     <div className="space-y-2">
