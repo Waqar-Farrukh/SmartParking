@@ -481,10 +481,24 @@ export default function AdminDashboard() {
                     <td className="p-6 text-xs opacity-40 dark:text-white" style={{ color: isDark ? '' : '#6B6259' }}>{b.endTime ? new Date(b.endTime).toLocaleString() : ''}</td>
                     <td className="p-6 font-display font-black dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{b.finalPrice} <span className="text-[10px] opacity-30">PKR</span></td>
                     <td className="p-6 text-right">
-                      <span className={`px-4 py-2 rounded-xl text-[10px] font-black tracking-widest uppercase ${
-                        b.status === 'active' ? 'bg-v3-emerald/20 text-v3-emerald' :
-                        b.status === 'completed' ? 'bg-gray-50 dark:bg-black/40 opacity-50' : 'bg-v3-ruby/20 text-v3-ruby'
-                      }`}>{b.status}</span>
+                      <div className="flex justify-end gap-2 items-center">
+                        {b.status === 'active' && (
+                          <button 
+                            onClick={async () => {
+                              if(window.confirm("Force complete this session? No additional fines will be calculated.")) {
+                                await forceCompleteBooking(b.id);
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-v3-ruby/10 text-v3-ruby rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-v3-ruby hover:text-white transition-all shadow-sm"
+                          >
+                            Force End
+                          </button>
+                        )}
+                        <span className={`px-4 py-2 rounded-xl text-[10px] font-black tracking-widest uppercase ${
+                          b.status === 'active' ? 'bg-v3-emerald/20 text-v3-emerald' :
+                          b.status === 'completed' ? 'bg-gray-50 dark:bg-black/40 opacity-50' : 'bg-v3-ruby/20 text-v3-ruby'
+                        }`}>{b.status}</span>
+                      </div>
                     </td>
                   </tr>
                 ))}

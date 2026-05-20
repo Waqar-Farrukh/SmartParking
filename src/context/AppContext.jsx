@@ -344,9 +344,9 @@ export function AppProvider({ children }) {
     } catch (err) { console.error('deleteParkingSpot:', err); return false; }
   };
 
-  const toggleZoneStatus = async (zoneId, active) => {
+  const toggleZoneStatus = async (zone_id, active) => {
     try {
-      const res = await fetch(`${API_BASE}/admin/zones/${zoneId}/status?sender_id=${currentUser.id}`, {
+      const res = await fetch(`${API_BASE}/admin/zones/${zone_id}/status?sender_id=${currentUser.id}`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
@@ -359,8 +359,10 @@ export function AppProvider({ children }) {
         await refreshSpots();
         await refreshAdminStats();
         return true;
+      } else {
+        alert(data.message || 'Action failed');
+        return false;
       }
-      return false;
     } catch (err) { console.error('toggleZoneStatus:', err); return false; }
   };
 
@@ -379,8 +381,10 @@ export function AppProvider({ children }) {
         await refreshSpots();
         await refreshAdminStats();
         return true;
+      } else {
+        alert(data.message || 'Action failed');
+        return false;
       }
-      return false;
     } catch (err) { console.error('toggleSpotStatus:', err); return false; }
   };
 
@@ -412,6 +416,23 @@ export function AppProvider({ children }) {
       }
       return false;
     } catch (err) { console.error('markViolationPaidAdmin:', err); return false; }
+  };
+
+  const forceCompleteBooking = async (resId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/bookings/${resId}/force-complete?sender_id=${currentUser.id}`, {
+        method: 'POST',
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        await refreshAdminStats();
+        return true;
+      } else {
+        alert(data.message || 'Force complete failed');
+        return false;
+      }
+    } catch (err) { console.error('forceCompleteBooking:', err); return false; }
   };
 
   // ===== AUTH =====

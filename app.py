@@ -1116,6 +1116,19 @@ def toggle_zone_status(zone_id):
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
+@app.route('/api/admin/bookings/<int:res_id>/force-complete', methods=['POST'])
+def force_complete_booking(res_id):
+    sender_id = request.args.get('sender_id')
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE Reservations SET status = 'completed' WHERE reservation_id = ?", (res_id,))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
