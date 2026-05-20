@@ -400,12 +400,12 @@ export default function AdminDashboard() {
                         <span className="font-display font-black text-lg dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>Zone {zone.zone}</span>
                       </div>
                       <button 
-                        onClick={() => handleToggleZone(zone.zone, zone.total)}
+                        onClick={() => handleToggleZone(zone.zone, zone.online)}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                          zone.total > 0 ? 'bg-v3-emerald/10 text-v3-emerald hover:bg-v3-ruby/10 hover:text-v3-ruby' : 'bg-v3-ruby/10 text-v3-ruby hover:bg-v3-emerald/10 hover:text-v3-emerald'
+                          zone.online > 0 ? 'bg-v3-emerald/10 text-v3-emerald hover:bg-v3-ruby/10 hover:text-v3-ruby' : 'bg-v3-ruby/10 text-v3-ruby hover:bg-v3-emerald/10 hover:text-v3-emerald'
                         }`}
                       >
-                        <Power size={12} /> {zone.total > 0 ? 'Zone Online' : 'Zone Offline'}
+                        <Power size={12} /> {zone.online > 0 ? 'Zone Online' : 'Zone Offline'}
                       </button>
                     </div>
                     <div className="flex flex-wrap gap-2 mt-4">

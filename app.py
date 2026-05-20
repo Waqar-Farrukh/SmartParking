@@ -738,8 +738,8 @@ def admin_stats():
     conn = get_db()
     try:
         cursor = conn.cursor()
-        from datetime import datetime
-        time_now = datetime.utcnow()
+        from datetime import datetime, timezone
+        time_now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         # Total revenue
         cursor.execute("SELECT ISNULL(SUM(final_price), 0) FROM Reservations WHERE status != 'cancelled'")
@@ -788,8 +788,7 @@ def admin_stats():
                 "revenue": float(r[1])
             })
 
-        from datetime import datetime, timezone
-        time_now = datetime.now(timezone.utc)
+
 
         # Data Fix: Ensure A12 is in Zone A
         cursor.execute("UPDATE Parking_Spots SET zone_id = 'A' WHERE spot_id = 'A12' AND zone_id = 'C'")
@@ -1097,7 +1096,7 @@ def toggle_spot_status(spot_id):
         if not active:
             cursor.execute("""
                 SELECT COUNT(*) FROM Reservations 
-                WHERE spot_id = ? AND status = 'active'
+                WHERE spot_id = ? AND status = 'active' AND end_time > GETUTCDATE()
             """, (spot_id,))
             count = cursor.fetchone()[0]
             if count > 0:
