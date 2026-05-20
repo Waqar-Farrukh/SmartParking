@@ -865,9 +865,10 @@ def admin_stats():
 
         # All violations for admin table
         cursor.execute("""
-            SELECT v.violation_id, r.user_id, v.reservation_id, v.fine_amount, v.is_paid, v.created_at
+            SELECT v.violation_id, r.user_id, u.name, v.reservation_id, v.fine_amount, v.is_paid, v.created_at
             FROM Violations v
             JOIN Reservations r ON v.reservation_id = r.reservation_id
+            JOIN Users u ON r.user_id = u.user_id
             ORDER BY v.created_at DESC
         """)
         violations = []
@@ -875,10 +876,11 @@ def admin_stats():
             violations.append({
                 "id": r[0],
                 "userId": r[1],
-                "reservationId": r[2],
-                "fineAmount": float(r[3]),
-                "isPaid": bool(r[4]),
-                "createdAt": (r[5].isoformat() + 'Z') if r[5] else ''
+                "userName": r[2],
+                "reservationId": r[3],
+                "fineAmount": float(r[4]),
+                "isPaid": bool(r[5]),
+                "createdAt": (r[6].isoformat() + 'Z') if r[6] else ''
             })
 
         # Recent reservations for admin

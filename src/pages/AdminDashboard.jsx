@@ -566,7 +566,10 @@ export default function AdminDashboard() {
               <tbody className="divide-y divide-gray-50 dark:divide-white/5">
                 {(stats.violations || []).map(v => (
                   <tr key={v.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                    <td className="py-6 px-6 font-mono font-bold dark:text-v3-teal" style={{ color: isDark ? '' : '#C26A5A' }}>User #{v.userId}</td>
+                    <td className="py-6 px-6 font-mono font-bold dark:text-v3-teal" style={{ color: isDark ? '' : '#C26A5A' }}>
+                      <span className="font-display">User #{v.userId}</span>
+                      {v.userName && <span className="ml-2 px-2 py-1 bg-black/5 dark:bg-white/5 rounded-md text-[10px] font-sans opacity-70 uppercase tracking-widest">{v.userName}</span>}
+                    </td>
                     <td className="py-6 px-6 font-mono opacity-50 dark:text-white" style={{ color: isDark ? '' : '#6B6259' }}>#{v.reservationId}</td>
                     <td className="py-6 px-6 font-black font-display text-xl dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{v.fineAmount} <span className="text-[10px] opacity-40">PKR</span></td>
                     <td className="py-6 px-6 text-right">

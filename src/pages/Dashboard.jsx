@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wallet, Star, Car, ArrowRight, CalendarDays, Zap, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Wallet, Star, Car, ArrowRight, CalendarDays, Zap, ShieldCheck, AlertTriangle, Users, DollarSign } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -15,7 +15,7 @@ const itemAnim = {
 };
 
 export default function Dashboard() {
-  const { currentUser, reservations, violations, refreshDashboard, checkIn, checkOut } = useAppContext();
+  const { currentUser, reservations, violations, refreshDashboard, checkIn, checkOut, adminStats, refreshAdminStats } = useAppContext();
   const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const [timeLeft, setTimeLeft] = useState('');
@@ -23,7 +23,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     refreshDashboard();
-  }, []);
+    if (currentUser?.role === 'admin') {
+      refreshAdminStats();
+    }
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (!currentUser || !reservations) return;
@@ -81,7 +84,9 @@ export default function Dashboard() {
 
   if (!currentUser) return null;
 
-  const recentBookings = (reservations || []).slice(0, 3);
+  const recentBookings = currentUser?.role === 'admin' 
+    ? (adminStats?.recentBookings || []).slice(0, 5) 
+    : (reservations || []).slice(0, 3);
 
   return (
     <motion.div
@@ -116,30 +121,61 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-3 gap-10">
-        <KPI
-            title="Wallet Balance"
-            value={`${currentUser.walletBalance?.toFixed(0) || 0} PKR`}
-            icon={<Wallet size={32} />}
-            color="bg-v3-emerald"
-            colorHex="#10b981"
-            sub="Ready for reservations"
-        />
-        <KPI
-            title="Loyalty Points"
-            value={currentUser.points || 0}
-            icon={<Star size={32} />}
-            color="bg-v3-gold"
-            colorHex="#D9A13B"
-            sub="Network rewards"
-        />
-        <KPI
-            title="Registry Status"
-            value={(reservations || []).filter(r => r.status === 'active' || r.status === 'reserved').length}
-            icon={<Car size={32} />}
-            color="bg-v3-indigo"
-            colorHex="#C26A5A"
-            sub="Upcoming & Live"
-        />
+        {currentUser.role === 'admin' ? (
+          <>
+            <KPI
+                title="Global Network"
+                value={`${adminStats?.totalUsers || 0} Users`}
+                icon={<Users size={32} />}
+                color="bg-v3-indigo"
+                colorHex="#5b21b6"
+                sub="Total authentications"
+            />
+            <KPI
+                title="Live Traffic"
+                value={adminStats?.activeBookings || 0}
+                icon={<Car size={32} />}
+                color="bg-v3-emerald"
+                colorHex="#10b981"
+                sub="Active parked nodes"
+            />
+            <KPI
+                title="System Revenue"
+                value={`${adminStats?.totalRevenue?.toLocaleString() || 0} PKR`}
+                icon={<DollarSign size={32} />}
+                color="bg-v3-teal"
+                colorHex="#0d9488"
+                sub="Gross collections"
+            />
+          </>
+        ) : (
+          <>
+            <KPI
+                title="Wallet Balance"
+                value={`${currentUser.walletBalance?.toFixed(0) || 0} PKR`}
+                icon={<Wallet size={32} />}
+                color="bg-v3-emerald"
+                colorHex="#10b981"
+                sub="Ready for reservations"
+            />
+            <KPI
+                title="Loyalty Points"
+                value={currentUser.points || 0}
+                icon={<Star size={32} />}
+                color="bg-v3-gold"
+                colorHex="#D9A13B"
+                sub="Network rewards"
+            />
+            <KPI
+                title="Registry Status"
+                value={(reservations || []).filter(r => r.status === 'active' || r.status === 'reserved').length}
+                icon={<Car size={32} />}
+                color="bg-v3-indigo"
+                colorHex="#C26A5A"
+                sub="Upcoming & Live"
+            />
+          </>
+        )}
       </motion.div>
 
       {/* Violation Alert */}
@@ -250,7 +286,10 @@ export default function Dashboard() {
                 <tbody>
                     {recentBookings.map((b) => (
                         <tr key={b.id} className="hover:bg-light-liveFeed/50 dark:hover:bg-white/5 transition-colors" style={{ borderBottom: '1px solid rgba(229,223,215,0.5)' }}>
-                            <td className="p-12 font-display font-black text-3xl tracking-tighter dark:text-white" style={{ color: '#2C2A29' }}>{b.spotId}</td>
+                            <td className="p-12 font-display font-black text-3xl tracking-tighter dark:text-white" style={{ color: '#2C2A29' }}>
+                              {b.spotId}
+                              {currentUser?.role === 'admin' && b.userName && <p className="text-[10px] font-sans font-bold uppercase tracking-widest text-[#C26A5A] dark:text-v3-teal mt-2">{b.userName}</p>}
+                            </td>
                             <td className="p-12 text-sm font-bold uppercase tracking-widest dark:opacity-40" style={{ color: '#A39B93' }}>{new Date(b.startTime).toLocaleString()}</td>
                             <td className="p-12">
                                 <div className={`w-fit px-5 py-2 rounded-xl text-[10px] font-black tracking-[0.2em] uppercase ${
