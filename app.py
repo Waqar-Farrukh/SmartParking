@@ -786,12 +786,12 @@ def admin_stats():
                 "revenue": float(r[1])
             })
 
-        # Zone occupancy
+        # Zone occupancy - Dynamic Zone Detection
         zone_occupancy = []
         cursor.execute("SELECT DISTINCT zone_id FROM Parking_Spots")
-        all_zones = [r[0] for r in cursor.fetchall()]
-
-        for zone_id in sorted(all_zones):
+        found_zones = [r[0] for r in cursor.fetchall()]
+        
+        for zone_id in sorted(found_zones):
             cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
             total_in_zone = cursor.fetchone()[0]
             cursor.execute("""
@@ -809,7 +809,7 @@ def admin_stats():
 
         # Dynamic pricing state per zone
         pricing_state = []
-        for zone_id in sorted(all_zones):
+        for zone_id in sorted(found_zones):
             cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
             total_spots = cursor.fetchone()[0]
             cursor.execute("""
