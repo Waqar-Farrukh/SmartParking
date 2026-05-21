@@ -59,14 +59,17 @@ export default function Dashboard() {
             setIsOverstay(false);
           }
         } else if (primary.status === 'active') {
-          if (currentTime > end) {
-            // Counting UP (overstay)
+          const graceEnd = new Date(end.getTime() + 10 * 60 * 1000);
+          if (currentTime > graceEnd) {
             const diff = currentTime - end;
             const h = Math.floor(diff / 3600000);
             const m = Math.floor((diff % 3600000) / 60000);
             const s = Math.floor((diff % 60000) / 1000);
             setTimeLeft(`Overstaying: ${h}h ${m}m ${s}s`);
             setIsOverstay(true);
+          } else if (currentTime > end) {
+            setTimeLeft('Grace period (10 min)');
+            setIsOverstay(false);
           } else {
             // Counting DOWN (normal)
             const diff = end - currentTime;

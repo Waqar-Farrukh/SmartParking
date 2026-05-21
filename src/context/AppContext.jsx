@@ -115,8 +115,7 @@ export function AppProvider({ children }) {
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshViolations();
-        await refreshDashboard();
+        await Promise.all([refreshViolations(), refreshDashboard(), refreshWallet()]);
         return true;
       } else {
         alert(data.message || 'Payment failed');
@@ -531,9 +530,7 @@ export function AppProvider({ children }) {
       });
       const data = await res.json();
       if (data.status === "success") {
-        await refreshDashboard();
-        await refreshBookings();
-        await refreshViolations();
+        await Promise.all([refreshDashboard(), refreshBookings(), refreshViolations()]);
         return true;
       }
       return false;

@@ -4,6 +4,8 @@ import hashlib
 import time
 import csv
 import io
+import math
+from datetime import datetime
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 
@@ -22,6 +24,33 @@ def get_db():
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest().upper()
+
+OVERSTAY_GRACE_MINUTES = 10
+
+def parse_db_time(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace('Z', '').split('+')[0])
+    return value
+
+def overstay_fine_amount(end_time, now=None):
+    """100 PKR base + 50/hr after a 10-minute grace period. No fine within grace."""
+    end_time = parse_db_time(end_time)
+    if end_time is None:
+        return 0.0
+    if now is None:
+        now = datetime.utcnow()
+    elif isinstance(now, datetime) and now.tzinfo:
+        now = now.replace(tzinfo=None)
+    delta_sec = (now - end_time).total_seconds()
+    if delta_sec <= OVERSTAY_GRACE_MINUTES * 60:
+        return 0.0
+    billable_min = (delta_sec - OVERSTAY_GRACE_MINUTES * 60) / 60.0
+    hours = max(1, math.ceil(billable_min / 60.0))
+    return float(100 + 50 * (hours - 1))
 
 # ===== HEALTH CHECK =====
 
@@ -199,11 +228,23 @@ def book_spot():
         # Check if spot is already booked for the time range
         cursor.execute("""
             SELECT COUNT(*) FROM Reservations
-            WHERE spot_id = ? AND status = 'active'
+            WHERE spot_id = ? AND status IN ('reserved', 'active')
             AND start_time < ? AND end_time > ?
         """, (spot_id, end, start))
         if cursor.fetchone()[0] > 0:
             return jsonify({"status": "error", "message": "Spot is already booked for this time period."}), 400
+
+        # One user cannot overlap reservations (new booking must start after prior one ends)
+        cursor.execute("""
+            SELECT COUNT(*) FROM Reservations
+            WHERE user_id = ? AND status IN ('reserved', 'active')
+            AND start_time < ? AND end_time > ?
+        """, (user_id, end, start))
+        if cursor.fetchone()[0] > 0:
+            return jsonify({
+                "status": "error",
+                "message": "You already have a reservation in this time window. Your next booking must start after your current reservation ends."
+            }), 400
 
         # Get zone from spot_id
         cursor.execute("SELECT zone_id FROM Parking_Spots WHERE spot_id = ?", (spot_id,))
@@ -214,7 +255,6 @@ def book_spot():
         v_type = cursor.fetchone()[0]
 
         # Calculate duration in hours
-        from datetime import datetime
         start_dt = datetime.fromisoformat(start.replace('Z', ''))
         end_dt = datetime.fromisoformat(end.replace('Z', ''))
         diff = (end_dt - start_dt).total_seconds() / 3600.0
@@ -249,7 +289,7 @@ def book_spot():
             FROM Reservations r
             JOIN Parking_Spots p ON r.spot_id = p.spot_id
             WHERE p.zone_id = ?
-              AND r.status = 'active'
+              AND r.status IN ('reserved', 'active')
               AND r.start_time < ?
               AND r.end_time > ?
         """, (zone, end, start))
@@ -442,24 +482,33 @@ def check_overstays(user_id):
         expired = cursor.fetchall()
 
         created = 0
+        now = datetime.utcnow()
         for r in expired:
             res_id = r[0]
-            # Check if violation already exists
-            cursor.execute("SELECT COUNT(*) FROM Violations WHERE reservation_id = ?", (res_id,))
-            if cursor.fetchone()[0] == 0:
-                # Calculate fine: 100 base + 50/hr overstay
-                end_time = r[1]
-                from datetime import datetime
-                hours_over = max(1, int((datetime.now() - end_time).total_seconds() / 3600))
-                fine = 100 + (50 * hours_over)
-                cursor.execute(
-                    "INSERT INTO Violations (reservation_id, fine_amount, is_paid) VALUES (?, ?, 0)",
-                    (res_id, fine)
-                )
-                created += 1
+            fine = overstay_fine_amount(r[1], now)
+            if fine > 0:
+                cursor.execute("SELECT COUNT(*) FROM Violations WHERE reservation_id = ?", (res_id,))
+                if cursor.fetchone()[0] == 0:
+                    cursor.execute(
+                        "INSERT INTO Violations (reservation_id, fine_amount, is_paid) VALUES (?, ?, 0)",
+                        (res_id, fine)
+                    )
+                    created += 1
+            cursor.execute(
+                "UPDATE Reservations SET status = 'completed' WHERE reservation_id = ? AND status = 'active'",
+                (res_id,)
+            )
 
-            # Mark reservation as completed
-            cursor.execute("UPDATE Reservations SET status = 'completed' WHERE reservation_id = ?", (res_id,))
+        # Close reserved sessions that ended without check-in (no fine)
+        cursor.execute("""
+            SELECT reservation_id FROM Reservations
+            WHERE user_id = ? AND status = 'reserved' AND end_time < GETUTCDATE()
+        """, (user_id,))
+        for row in cursor.fetchall():
+            cursor.execute(
+                "UPDATE Reservations SET status = 'completed' WHERE reservation_id = ? AND status = 'reserved'",
+                (row[0],)
+            )
 
         return jsonify({"status": "success", "violationsCreated": created})
     except Exception as e:
@@ -700,31 +749,38 @@ def check_out():
             return jsonify({"status": "error", "message": "Reservation not found"}), 404
             
         end_time = res[0]
-        user_id = res[1]
         status = res[2]
 
-        if status == 'completed':
+        if status in ('completed', 'cancelled'):
             return jsonify({"status": "success", "message": "Already checked out"})
-        
-        # Check for Overstay Fine
-        from datetime import datetime
+
+        if status == 'reserved':
+            cursor.execute(
+                "UPDATE Reservations SET status = 'completed' WHERE reservation_id = ? AND status = 'reserved'",
+                (res_id,)
+            )
+            return jsonify({"status": "success", "message": "Reservation closed without parking session."})
+
+        if status != 'active':
+            return jsonify({"status": "error", "message": "Only active parking sessions can be checked out."}), 400
+
         now = datetime.utcnow()
-        if now > end_time:
-            # Check if violation already exists
+        cursor.execute(
+            "UPDATE Reservations SET status = 'completed' WHERE reservation_id = ? AND status = 'active'",
+            (res_id,)
+        )
+        if cursor.rowcount == 0:
+            return jsonify({"status": "success", "message": "Already checked out"})
+
+        fine = overstay_fine_amount(end_time, now)
+        if fine > 0:
             cursor.execute("SELECT COUNT(*) FROM Violations WHERE reservation_id = ?", (res_id,))
             if cursor.fetchone()[0] == 0:
-                # Calculate hours over
-                hours_over = max(1, int((now - end_time).total_seconds() / 3600))
-                fine = 100 + (50 * hours_over)
-                
-                # Create the violation record
                 cursor.execute(
                     "INSERT INTO Violations (reservation_id, fine_amount, is_paid) VALUES (?, ?, 0)",
                     (res_id, fine)
                 )
-        
-        # Mark as completed
-        cursor.execute("UPDATE Reservations SET status = 'completed' WHERE reservation_id = ?", (res_id,))
+
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
