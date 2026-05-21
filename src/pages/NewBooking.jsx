@@ -15,7 +15,7 @@ const itemAnim = {
 };
 
 export default function NewBooking() {
-  const { currentUser, vehicleTypes, spots, bookSpot, theme } = useAppContext();
+  const { currentUser, vehicleTypes, spots, bookSpot, theme, API_BASE } = useAppContext();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
@@ -77,52 +77,69 @@ export default function NewBooking() {
     setEstimatedCost(Math.ceil(rate * diffHours));
   }, [entryTime, exitTime, vehicle, occupancyPercentage, vehicleTypes]);
 
+  const finalPrice = Math.max(0, estimatedCost - appliedDiscount);
+
   const validateCode = async () => {
-    if (!discountCode) {
+    if (!discountCode.trim()) {
       setAppliedDiscount(0);
       setDiscountStatus(null);
-      return;
+      return true;
     }
     try {
-      const { API_BASE } = useAppContext();
       const res = await fetch(`${API_BASE}/parking/validate-discount`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
-        body: JSON.stringify({ code: discountCode, userId: currentUser.id })
+        body: JSON.stringify({ code: discountCode.trim(), userId: currentUser.id })
       });
       const data = await res.json();
       if (data.status === 'success') {
         setAppliedDiscount(data.amountOff);
         setDiscountStatus('valid');
-      } else {
-        setAppliedDiscount(0);
-        setDiscountStatus('invalid');
+        return true;
       }
+      setAppliedDiscount(0);
+      setDiscountStatus('invalid');
+      return false;
     } catch (e) {
       setAppliedDiscount(0);
       setDiscountStatus('invalid');
+      return false;
     }
   };
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
     if (step === 1 && estimatedCost > 0 && !errorMsg) setStep(2);
     if (step === 2 && selectedSpot) {
-       validateCode(); 
-       setStep(3);
+      if (discountCode.trim()) await validateCode();
+      setStep(3);
     }
   };
 
   const handleConfirm = async () => {
-    const success = await bookSpot({
+    if (discountCode.trim()) {
+      const valid = await validateCode();
+      if (!valid) {
+        setToast('Discount code is invalid or already used.');
+        setTimeout(() => setToast(null), 4000);
+        return;
+      }
+    }
+
+    const result = await bookSpot({
       userId: currentUser.id,
       spotId: selectedSpot,
       startTime: new Date(entryTime).toISOString(),
       endTime: new Date(exitTime).toISOString(),
-      discountCode: discountCode
+      discountCode: discountCode.trim() || undefined
     });
-    if (success) {
-      setToast('Spot Reserved Successfully!');
-      setTimeout(() => { navigate('/my-bookings'); }, 2000);
+
+    if (result?.success) {
+      const charged = result.price ?? finalPrice;
+      const msg = appliedDiscount > 0
+        ? `Discount code applied! ${appliedDiscount} PKR off. Amount charged: ${charged} PKR. Spot reserved!`
+        : `Spot reserved! Amount charged: ${charged} PKR.`;
+      setToast(msg);
+      setTimeout(() => { navigate('/my-bookings'); }, 2500);
     } else {
       setToast('Booking failed. Please try again.');
       setTimeout(() => setToast(null), 3000);
@@ -267,8 +284,12 @@ export default function NewBooking() {
                        <div className="flex justify-between items-center">
                           <span className="text-xs font-black uppercase tracking-widest opacity-30" style={{ color: isDark ? '' : '#A39B93' }}>Matrix Billing</span>
                           <span className="text-2xl font-black dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>
-                            {Math.max(0, estimatedCost - appliedDiscount)} <span className="text-xs opacity-30">PKR</span>
-                            {appliedDiscount > 0 && <span className="text-[10px] text-v3-emerald ml-2">(-{appliedDiscount} Applied)</span>}
+                            {finalPrice} <span className="text-xs opacity-30">PKR</span>
+                            {appliedDiscount > 0 && (
+                              <span className="block text-[10px] text-v3-emerald mt-1 font-black uppercase tracking-widest">
+                                Was {estimatedCost} PKR — {appliedDiscount} PKR discount applied
+                              </span>
+                            )}
                           </span>
                        </div>
                    </div>
@@ -276,15 +297,23 @@ export default function NewBooking() {
             </div>
 
             <div className="flex flex-col justify-center space-y-10">
+                {discountStatus === 'valid' && appliedDiscount > 0 && (
+                  <div className="p-6 rounded-2xl bg-v3-emerald/10 border border-v3-emerald/30 text-center">
+                    <p className="text-sm font-black uppercase tracking-widest text-v3-emerald">Discount code valid and applied</p>
+                    <p className="text-lg font-display font-black dark:text-white mt-2" style={{ color: isDark ? '' : '#2C2A29' }}>
+                      {appliedDiscount} PKR deducted — you pay {finalPrice} PKR
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-4">
                     <div className="flex justify-between items-center ml-6">
                         <label className="text-[10px] font-black opacity-30 uppercase tracking-[0.4em]" style={{ color: isDark ? '' : '#A39B93' }}>Discount Code (Optional)</label>
-                        {discountStatus === 'valid' && <span className="text-[10px] text-v3-emerald font-black uppercase tracking-widest">Code Applied!</span>}
+                        {discountStatus === 'valid' && <span className="text-[10px] text-v3-emerald font-black uppercase tracking-widest">Valid & Applied</span>}
                         {discountStatus === 'invalid' && <span className="text-[10px] text-v3-ruby font-black uppercase tracking-widest">Invalid Code</span>}
                     </div>
                     <input 
                       value={discountCode} 
-                      onChange={e=>setDiscountCode(e.target.value)} 
+                      onChange={e => { setDiscountCode(e.target.value); setDiscountStatus(null); setAppliedDiscount(0); }} 
                       onBlur={validateCode}
                       placeholder="ENTER CODE" 
                       className={`w-full p-10 rounded-[2.5rem] bg-gray-50/50 dark:bg-black/40 border-2 font-display font-black text-4xl text-center tracking-[0.2em] focus:bg-white dark:focus:bg-black transition-all ${
@@ -309,7 +338,7 @@ export default function NewBooking() {
            <div className="max-w-5xl mx-auto backdrop-blur-3xl border rounded-[3rem] p-8 flex justify-between items-center shadow-[0_30px_100px_rgba(0,0,0,0.2)]" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.9)' : 'rgba(44,42,41,0.9)', borderColor: isDark ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' }}>
               <div className="ml-8">
                  <p className="text-[10px] font-black uppercase tracking-[0.4em] leading-none mb-3" style={{ color: isDark ? '#C26A5A' : '#00ced1' }}>Billing Projection</p>
-                  <h3 className="text-5xl font-display font-black leading-none tracking-tighter" style={{ color: isDark ? '#2C2A29' : '#FFFFFF' }}>{Math.max(0, estimatedCost - appliedDiscount)} <span className="text-sm opacity-40">PKR</span> {isSurge && <span className="text-sm text-v3-gold"> (SURGE)</span>}</h3>
+                  <h3 className="text-5xl font-display font-black leading-none tracking-tighter" style={{ color: isDark ? '#2C2A29' : '#FFFFFF' }}>{finalPrice} <span className="text-sm opacity-40">PKR</span> {isSurge && <span className="text-sm text-v3-gold"> (SURGE)</span>}</h3>
               </div>
               <button
                 onClick={handleNextStep}

@@ -231,13 +231,14 @@ export function AppProvider({ children }) {
       if (data.status === 'success') {
         await refreshBookings();
         await refreshDashboard();
+        await refreshWallet();
         await refreshSpots();
-        return true;
+        return { success: true, refund: data.refund };
       } else {
         alert(data.message || 'Cancel failed');
-        return false;
+        return { success: false };
       }
-    } catch (err) { console.error('cancelReservation:', err); return false; }
+    } catch (err) { console.error('cancelReservation:', err); return { success: false }; }
   };
 
   // ===== LEADERBOARD =====
@@ -495,12 +496,13 @@ export function AppProvider({ children }) {
         await refreshSpots();
         await refreshDashboard();
         await refreshBookings();
-        return true;
+        await refreshWallet();
+        return { success: true, price: data.price };
       } else {
         alert(data.message || 'Booking failed');
       }
     } catch (e) { console.error(e); }
-    return false;
+    return { success: false };
   };
 
   const checkIn = async (resId) => {

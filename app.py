@@ -618,28 +618,49 @@ def cancel_booking(user_id):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT final_price, status FROM Reservations WHERE reservation_id = ? AND user_id = ?",
+            """
+            SELECT final_price, points_earned FROM Reservations
+            WHERE reservation_id = ? AND user_id = ?
+              AND status IN ('reserved', 'active')
+              AND GETUTCDATE() < DATEADD(minute, 10, start_time)
+            """,
             (reservation_id, user_id)
         )
         row = cursor.fetchone()
         if not row:
-            return jsonify({"status": "error", "message": "Reservation not found"}), 404
-        if row[1] != 'active':
-            return jsonify({"status": "error", "message": "Only active reservations can be cancelled"}), 400
+            cursor.execute(
+                "SELECT status FROM Reservations WHERE reservation_id = ? AND user_id = ?",
+                (reservation_id, user_id)
+            )
+            check = cursor.fetchone()
+            if not check:
+                return jsonify({"status": "error", "message": "Reservation not found"}), 404
+            if check[0] in ('cancelled', 'completed'):
+                return jsonify({"status": "error", "message": "This reservation cannot be cancelled."}), 400
+            return jsonify({
+                "status": "error",
+                "message": "Cancellation window closed. You can cancel before start or within 10 minutes after start time."
+            }), 400
 
         refund = float(row[0])
+        points_earned = int(row[1]) if row[1] else 0
 
-        # Cancel reservation
         cursor.execute("UPDATE Reservations SET status = 'cancelled' WHERE reservation_id = ?", (reservation_id,))
-
-        # Refund wallet
         cursor.execute("UPDATE Users SET wallet_balance = wallet_balance + ? WHERE user_id = ?", (refund, user_id))
-
-        # Log wallet transaction
         cursor.execute(
             "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'refund', ?)",
             (user_id, refund, f'Refund for cancelled reservation #{reservation_id}')
         )
+
+        if points_earned > 0:
+            cursor.execute(
+                "UPDATE Loyalty_Points SET points = CASE WHEN points >= ? THEN points - ? ELSE 0 END WHERE user_id = ?",
+                (points_earned, points_earned, user_id)
+            )
+            cursor.execute(
+                "INSERT INTO Transactions (user_id, points_change, reason) VALUES (?, ?, ?)",
+                (user_id, -points_earned, f'Reversed for cancelled reservation #{reservation_id}')
+            )
 
         return jsonify({"status": "success", "refund": refund})
     except Exception as e:

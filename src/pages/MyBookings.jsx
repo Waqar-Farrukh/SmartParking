@@ -13,6 +13,12 @@ const itemAnim = {
   show: { opacity: 1, scale: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } }
 };
 
+const canCancelBooking = (b) => {
+  if (b.status !== 'reserved' && b.status !== 'active') return false;
+  const graceEnd = new Date(b.startTime).getTime() + 10 * 60 * 1000;
+  return Date.now() < graceEnd;
+};
+
 export default function MyBookings() {
   const { bookings, cancelReservation, refreshBookings, theme } = useAppContext();
   const isDark = theme === 'dark';
@@ -22,8 +28,10 @@ export default function MyBookings() {
   }, []);
 
   const handleCancel = async (r) => {
-    if (window.confirm('Are you sure you want to cancel this booking? The amount will be refunded.')) {
-      await cancelReservation(r);
+    if (!window.confirm('Cancel this booking? The full amount will be refunded to your wallet.')) return;
+    const result = await cancelReservation(r);
+    if (result?.success) {
+      alert(`${result.refund} PKR has been refunded to your wallet.`);
     }
   };
 
@@ -74,14 +82,16 @@ export default function MyBookings() {
                   <td className="p-8">
                     <span className={`px-4 py-2 rounded-xl text-[10px] font-black tracking-widest uppercase ${
                       b.status === 'active' ? 'bg-v3-emerald/20 text-v3-emerald' :
+                      b.status === 'reserved' ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400' :
                       b.status === 'completed' ? 'dark:bg-black/40 dark:opacity-50' :
+                      b.status === 'cancelled' ? 'bg-v3-ruby/10 text-v3-ruby opacity-60' :
                       'bg-v3-ruby/20 text-v3-ruby'
                     }`} style={b.status === 'completed' ? { backgroundColor: '#F1E4DF', color: '#A39B93' } : {}}>
                       {b.status}
                     </span>
                   </td>
                   <td className="p-8 text-right">
-                    {b.status === 'active' && (
+                    {canCancelBooking(b) && (
                       <button
                         onClick={() => handleCancel(b)}
                         className="px-6 py-3 bg-v3-ruby/10 text-v3-ruby rounded-xl text-xs font-black uppercase tracking-widest hover:bg-v3-ruby hover:text-white transition-all flex items-center gap-2 ml-auto"
