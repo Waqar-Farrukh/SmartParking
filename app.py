@@ -673,27 +673,34 @@ def check_out():
     try:
         cursor = conn.cursor()
         # Get reservation details
-        cursor.execute("SELECT end_time, user_id FROM Reservations WHERE reservation_id = ?", (res_id,))
+        cursor.execute("SELECT end_time, user_id, status FROM Reservations WHERE reservation_id = ?", (res_id,))
         res = cursor.fetchone()
         if not res:
             return jsonify({"status": "error", "message": "Reservation not found"}), 404
             
         end_time = res[0]
         user_id = res[1]
+        status = res[2]
+
+        if status == 'completed':
+            return jsonify({"status": "success", "message": "Already checked out"})
         
         # Check for Overstay Fine
         from datetime import datetime
         now = datetime.utcnow()
         if now > end_time:
-            # Calculate hours over
-            hours_over = max(1, int((now - end_time).total_seconds() / 3600))
-            fine = 100 + (50 * hours_over)
-            
-            # Create the violation record
-            cursor.execute(
-                "INSERT INTO Violations (reservation_id, fine_amount, is_paid) VALUES (?, ?, 0)",
-                (res_id, fine)
-            )
+            # Check if violation already exists
+            cursor.execute("SELECT COUNT(*) FROM Violations WHERE reservation_id = ?", (res_id,))
+            if cursor.fetchone()[0] == 0:
+                # Calculate hours over
+                hours_over = max(1, int((now - end_time).total_seconds() / 3600))
+                fine = 100 + (50 * hours_over)
+                
+                # Create the violation record
+                cursor.execute(
+                    "INSERT INTO Violations (reservation_id, fine_amount, is_paid) VALUES (?, ?, 0)",
+                    (res_id, fine)
+                )
         
         # Mark as completed
         cursor.execute("UPDATE Reservations SET status = 'completed' WHERE reservation_id = ?", (res_id,))
