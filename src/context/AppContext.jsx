@@ -22,11 +22,6 @@ export function AppProvider({ children }) {
   // Use environment variable for deployment, fallback to localhost for local dev
   const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000") + "/api";
   
-  useEffect(() => {
-    console.log('Current User Role:', currentUser?.role);
-    console.log('isAdmin:', isAdmin);
-  }, [currentUser, isAdmin]);
-
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
@@ -561,6 +556,8 @@ export function AppProvider({ children }) {
     if (currentUser?.id) {
       refreshDashboard();
       refreshBookings();
+      refreshWallet();
+      refreshViolations();
     }
   }, [currentUser?.id]);
 

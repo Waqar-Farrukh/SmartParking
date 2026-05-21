@@ -145,9 +145,14 @@ export default function AdminDashboard() {
       return;
     }
 
+    const prevRole = adminUsers.find(u => u.id === editingUser.id)?.role;
     const success = await updateUserAdmin(editingUser.id, editingUser);
-    if (success) setEditingUser(null);
-    else alert("Failed to update user");
+    if (success) {
+      setEditingUser(null);
+      if (prevRole !== editingUser.role) {
+        alert(`Role updated to "${editingUser.role}". That user must log out and log in again to see the new permissions.`);
+      }
+    } else alert("Failed to update user");
   };
 
   const handleDeleteUser = async (id) => {

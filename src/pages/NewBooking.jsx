@@ -47,7 +47,7 @@ export default function NewBooking() {
   }, [entryTime, exitTime]);
 
   const zoneSpots = spots.filter(s => s.zone === selectedZone);
-  const occupiedSpotsCount = zoneSpots.filter(s => s.status === 'occupied').length;
+  const occupiedSpotsCount = zoneSpots.filter(s => s.status === 'occupied' || s.status === 'reserved').length;
   const occupancyPercentage = zoneSpots.length ? (occupiedSpotsCount / zoneSpots.length) * 100 : 0;
 
   useEffect(() => {
@@ -231,20 +231,24 @@ export default function NewBooking() {
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {zoneSpots.map(s => {
                 const isSelected = selectedSpot === s.id;
-                const isOccupied = s.status === 'occupied';
+                const isActive = s.status === 'occupied';
+                const isReserved = s.status === 'reserved';
+                const isBlocked = isActive || isReserved;
                 const isUnavailable = s.status === 'unavailable';
                 const displayId = s.id.includes('-') ? s.id.split('-')[1] : s.id;
 
                 return (
                     <motion.button
-                      whileHover={(!isOccupied && !isUnavailable) ? { scale: 1.05 } : {}}
-                      whileTap={(!isOccupied && !isUnavailable) ? { scale: 0.95 } : {}}
+                      whileHover={(!isBlocked && !isUnavailable) ? { scale: 1.05 } : {}}
+                      whileTap={(!isBlocked && !isUnavailable) ? { scale: 0.95 } : {}}
                       key={s.id}
-                      disabled={isOccupied || isUnavailable}
+                      disabled={isBlocked || isUnavailable}
                       onClick={() => setSelectedSpot(s.id)}
                       className={`group relative p-8 rounded-[2rem] flex flex-col items-center justify-center gap-3 aspect-square transition-all ${
-                        isOccupied
+                        isActive
                         ? 'bg-v3-ruby text-white shadow-[0_10px_30px_rgba(225,29,72,0.3)]'
+                        : isReserved
+                          ? 'bg-amber-500 text-white shadow-[0_10px_30px_rgba(245,158,11,0.3)]'
                         : isUnavailable
                           ? 'bg-blue-500 text-white shadow-[0_10px_30px_rgba(59,130,246,0.3)]'
                           : isSelected
@@ -255,7 +259,7 @@ export default function NewBooking() {
                       <Car size={36} strokeWidth={2.5} className="opacity-60 group-hover:opacity-100 transition-opacity"/>
                       <span className="text-2xl font-black font-display leading-none mt-1">{displayId}</span>
                       <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">
-                        {isOccupied ? 'Reserved' : isUnavailable ? 'Offline' : 'Free'}
+                        {isActive ? 'Occupied' : isReserved ? 'Booked' : isUnavailable ? 'Offline' : 'Free'}
                       </span>
                     </motion.button>
                 );

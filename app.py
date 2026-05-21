@@ -105,8 +105,13 @@ def login():
             )
         user = cursor.fetchone()
         if user:
-            role = user[5] if len(user) > 6 else 'user'
-            v_type_id = user[6] if len(user) > 6 else (user[5] if len(user) == 6 else 2)
+            # 7 cols: id,name,email,wallet,ref,role,vtype | 6 cols: no role column
+            if len(user) >= 7:
+                role = user[5] or 'user'
+                v_type_id = user[6]
+            else:
+                role = 'user'
+                v_type_id = user[5] if len(user) >= 6 else 2
             return jsonify({
                 "status": "success",
                 "user": {
@@ -190,11 +195,15 @@ def get_spots():
         cursor.execute("SELECT spot_id, zone_id, is_active FROM Parking_Spots")
         rows = cursor.fetchall()
 
-        # Check which spots are currently occupied (active reservation)
+        # Active = checked in; reserved = booked but not yet arrived
         cursor.execute(
             "SELECT spot_id FROM Reservations WHERE status = 'active' AND end_time > GETUTCDATE()"
         )
-        occupied = set(r[0] for r in cursor.fetchall())
+        occupied = set(str(r[0]).strip() for r in cursor.fetchall())
+        cursor.execute(
+            "SELECT spot_id FROM Reservations WHERE status = 'reserved' AND end_time > GETUTCDATE()"
+        )
+        reserved = set(str(r[0]).strip() for r in cursor.fetchall())
 
         spots = []
         for r in rows:
@@ -204,6 +213,8 @@ def get_spots():
                 status = "unavailable"
             elif sid in occupied:
                 status = "occupied"
+            elif sid in reserved:
+                status = "reserved"
             else:
                 status = "available"
             spots.append({"id": sid, "zone": zid, "status": status})
@@ -477,7 +488,7 @@ def check_overstays(user_id):
         cursor.execute("""
             SELECT reservation_id, end_time
             FROM Reservations
-            WHERE user_id = ? AND status = 'active' AND end_time < GETDATE()
+            WHERE user_id = ? AND status = 'active' AND end_time < GETUTCDATE()
         """, (user_id,))
         expired = cursor.fetchall()
 
@@ -581,6 +592,49 @@ def redeem_points(user_id):
 
 # ===== WALLET =====
 
+def backfill_wallet_transactions(cursor, user_id):
+    """Rebuild ledger rows when balance exists but history was never logged."""
+    cursor.execute("SELECT COUNT(*) FROM Wallet_Transactions WHERE user_id = ?", (user_id,))
+    if cursor.fetchone()[0] > 0:
+        return
+    cursor.execute(
+        """
+        SELECT reservation_id, final_price, spot_id, status
+        FROM Reservations
+        WHERE user_id = ? AND final_price > 0
+        ORDER BY reservation_id ASC
+        """,
+        (user_id,),
+    )
+    for r in cursor.fetchall():
+        price = float(r[1])
+        spot = r[2]
+        status = r[3]
+        if status == 'cancelled':
+            cursor.execute(
+                "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'refund', ?)",
+                (user_id, price, f'Refund for cancelled reservation #{r[0]} (backfill)'),
+            )
+        elif status in ('reserved', 'active', 'completed'):
+            cursor.execute(
+                "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'book', ?)",
+                (user_id, price, f'Booking spot {spot} (backfill)'),
+            )
+    cursor.execute(
+        """
+        SELECT v.violation_id, v.fine_amount
+        FROM Violations v
+        JOIN Reservations r ON v.reservation_id = r.reservation_id
+        WHERE r.user_id = ? AND v.is_paid = 1
+        """,
+        (user_id,),
+    )
+    for v in cursor.fetchall():
+        cursor.execute(
+            "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'fine', ?)",
+            (user_id, float(v[1]), f'Violation #{v[0]} fine payment (backfill)'),
+        )
+
 @app.route('/api/user/<int:user_id>/wallet', methods=['GET'])
 def get_wallet(user_id):
     conn = get_db()
@@ -589,6 +643,8 @@ def get_wallet(user_id):
         cursor.execute("SELECT wallet_balance FROM Users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         balance = float(row[0]) if row else 0
+
+        backfill_wallet_transactions(cursor, user_id)
 
         cursor.execute(
             "SELECT trans_id, amount, type, description, created_at FROM Wallet_Transactions WHERE user_id = ? ORDER BY created_at DESC",
