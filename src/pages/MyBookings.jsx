@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { motion } from 'framer-motion';
 import { Calendar, X, Clock } from 'lucide-react';
@@ -20,12 +19,9 @@ const canCancelBooking = (b) => {
 };
 
 export default function MyBookings() {
-  const { bookings, cancelReservation, refreshBookings, theme } = useAppContext();
+  const { bookings, cancelReservation, theme } = useAppContext();
   const isDark = theme === 'dark';
 
-  useEffect(() => {
-    refreshBookings();
-  }, []);
 
   const handleCancel = async (r) => {
     if (!window.confirm('Cancel this booking? The full amount will be refunded to your wallet.')) return;

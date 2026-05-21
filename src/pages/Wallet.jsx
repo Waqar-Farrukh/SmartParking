@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wallet as WalletIcon, Plus, History, ArrowUpRight, ArrowDownRight, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
@@ -13,10 +13,9 @@ const itemAnim = {
 };
 
 export default function Wallet() {
-  const { currentUser, walletTransactions, addWallet, refreshWallet } = useAppContext();
+  const { currentUser, walletTransactions, addWallet } = useAppContext();
   const [showModal, setShowModal] = useState(false);
 
-  useEffect(() => { refreshWallet(); }, []);
 
   const handleTopUp = async (amount) => {
     await addWallet(amount);

@@ -130,7 +130,8 @@ export default function NewBooking() {
       spotId: selectedSpot,
       startTime: new Date(entryTime).toISOString(),
       endTime: new Date(exitTime).toISOString(),
-      discountCode: discountCode.trim() || undefined
+      discountCode: discountCode.trim() || undefined,
+      estimatedPrice: finalPrice
     });
 
     if (result?.success) {

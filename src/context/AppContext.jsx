@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { API_HEADERS, API_HEADERS_JSON, runInBackground, patchStatus } from '../utils/apiHelpers';
 
 const AppContext = createContext();
 
@@ -16,7 +17,6 @@ export function AppProvider({ children }) {
   const [dbHealth, setDbHealth] = useState(null);
   const [loading, setLoading] = useState(false);
   const [theme, setTheme] = useState(localStorage.getItem('parking_theme') || 'light');
-  const isFetching = useRef(false);
 
   const isAdmin = currentUser?.role === 'admin';
   // Use environment variable for deployment, fallback to localhost for local dev
@@ -37,9 +37,7 @@ export function AppProvider({ children }) {
   // ===== HEALTH CHECK =====
   const checkHealth = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/health`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/health`, { headers: API_HEADERS });
       const data = await res.json();
       setDbHealth(data);
       return data;
@@ -53,9 +51,7 @@ export function AppProvider({ children }) {
   // ===== SPOTS =====
   const refreshSpots = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/parking/spots`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/parking/spots`, { headers: API_HEADERS });
       const data = await res.json();
       setSpots(data);
     } catch (err) { console.error('refreshSpots:', err); }
@@ -63,12 +59,9 @@ export function AppProvider({ children }) {
 
   // ===== DASHBOARD =====
   const refreshDashboard = useCallback(async () => {
-    if (!currentUser || isFetching.current) return;
-    isFetching.current = true;
+    if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/dashboard`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/dashboard`, { headers: API_HEADERS });
       const data = await res.json();
       setDashboardData(data);
       setCurrentUser(prev => {
@@ -83,16 +76,13 @@ export function AppProvider({ children }) {
         return updated;
       });
     } catch (err) { console.error('refreshDashboard:', err); }
-    finally { isFetching.current = false; }
   }, [currentUser?.id]);
 
   // ===== VIOLATIONS =====
   const refreshViolations = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/violations`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/violations`, { headers: API_HEADERS });
       const data = await res.json();
       setViolations(data);
     } catch (err) { console.error('refreshViolations:', err); }
@@ -100,23 +90,28 @@ export function AppProvider({ children }) {
 
   const payFine = async (violation) => {
     try {
+      const fine = violation.fineAmount;
+      setViolations(prev => prev.map(v => v.id === violation.id ? { ...v, isPaid: true } : v));
+      setCurrentUser(prev => prev ? { ...prev, walletBalance: Math.max(0, (prev.walletBalance || 0) - fine) } : prev);
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/violations/pay`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify({ violationId: violation.id })
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await Promise.all([refreshViolations(), refreshDashboard(), refreshWallet()]);
+        runInBackground(refreshViolations, refreshDashboard, refreshWallet);
         return true;
       } else {
+        runInBackground(refreshViolations, refreshDashboard, refreshWallet);
         alert(data.message || 'Payment failed');
         return false;
       }
-    } catch (err) { console.error('payFine:', err); return false; }
+    } catch (err) {
+      runInBackground(refreshViolations, refreshDashboard, refreshWallet);
+      console.error('payFine:', err);
+      return false;
+    }
   };
 
   const triggerOverstays = async () => {
@@ -124,10 +119,10 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/violations/check`, {
         method: 'POST',
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: API_HEADERS
       });
       const data = await res.json();
-      await refreshViolations();
+      runInBackground(refreshViolations, refreshDashboard);
       return data.violationsCreated || 0;
     } catch (err) { console.error('triggerOverstays:', err); return 0; }
   };
@@ -136,9 +131,7 @@ export function AppProvider({ children }) {
   const refreshLoyalty = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/loyalty`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/loyalty`, { headers: API_HEADERS });
       const data = await res.json();
       setPointTransactions(data.transactions || []);
       setCurrentUser(prev => prev ? { ...prev, points: data.points } : prev);
@@ -149,15 +142,12 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/loyalty/redeem`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        }
+        headers: API_HEADERS_JSON
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshLoyalty();
-        await refreshDashboard();
+        setCurrentUser(prev => prev ? { ...prev, points: Math.max(0, (prev.points || 0) - 500) } : prev);
+        runInBackground(refreshLoyalty, refreshDashboard);
         return data.code;
       } else {
         alert(data.message || 'Redeem failed');
@@ -170,9 +160,7 @@ export function AppProvider({ children }) {
   const refreshWallet = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/wallet`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/wallet`, { headers: API_HEADERS });
       const data = await res.json();
       setWalletTransactions(data.transactions || []);
       setCurrentUser(prev => prev ? { ...prev, walletBalance: data.balance } : prev);
@@ -181,66 +169,75 @@ export function AppProvider({ children }) {
 
   const addWallet = async (amount) => {
     try {
+      setCurrentUser(prev => prev ? { ...prev, walletBalance: (prev.walletBalance || 0) + amount } : prev);
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/wallet/topup`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify({ amount })
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshWallet();
-        await refreshDashboard();
+        if (data.newBalance != null) {
+          setCurrentUser(prev => prev ? { ...prev, walletBalance: data.newBalance } : prev);
+        }
+        runInBackground(refreshWallet, refreshDashboard);
         return true;
       }
+      runInBackground(refreshWallet, refreshDashboard);
       return false;
-    } catch (err) { console.error('addWallet:', err); return false; }
+    } catch (err) { console.error('addWallet:', err); runInBackground(refreshWallet); return false; }
   };
 
   // ===== BOOKINGS =====
   const refreshBookings = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/user/${currentUser.id}/bookings`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/user/${currentUser.id}/bookings`, { headers: API_HEADERS });
       const data = await res.json();
       setBookings(Array.isArray(data) ? data : []);
     } catch (err) { console.error('refreshBookings:', err); }
   }, [currentUser?.id]);
 
   const cancelReservation = async (reservation) => {
+    const resId = reservation.id;
+    const refund = reservation.finalPrice || 0;
+    setBookings(prev => patchStatus(prev, resId, 'cancelled'));
+    setDashboardData(prev => ({
+      ...prev,
+      history: patchStatus(prev.history || [], resId, 'cancelled'),
+      wallet: (prev.wallet || 0) + refund
+    }));
+    setCurrentUser(prev => prev ? { ...prev, walletBalance: (prev.walletBalance || 0) + refund } : prev);
     try {
       const res = await fetch(`${API_BASE}/user/${currentUser.id}/bookings/cancel`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
-        body: JSON.stringify({ reservationId: reservation.id })
+        headers: API_HEADERS_JSON,
+        body: JSON.stringify({ reservationId: resId })
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshBookings();
-        await refreshDashboard();
-        await refreshWallet();
-        await refreshSpots();
+        runInBackground(refreshBookings, refreshDashboard, refreshWallet, refreshSpots);
         return { success: true, refund: data.refund };
       } else {
+        runInBackground(refreshBookings, refreshDashboard, refreshWallet);
         alert(data.message || 'Cancel failed');
         return { success: false };
       }
-    } catch (err) { console.error('cancelReservation:', err); return { success: false }; }
+    } catch (err) {
+      runInBackground(refreshBookings, refreshDashboard, refreshWallet);
+      console.error('cancelReservation:', err);
+      return { success: false };
+    }
   };
+
+  const refreshUserData = useCallback(() => {
+    runInBackground(refreshDashboard, refreshBookings, refreshWallet, refreshViolations);
+  }, [refreshDashboard, refreshBookings, refreshWallet, refreshViolations]);
 
   // ===== LEADERBOARD =====
   const refreshLeaderboard = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/leaderboard`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/leaderboard`, { headers: API_HEADERS });
       const data = await res.json();
       setLeaderboardData(data);
     } catch (err) { console.error('refreshLeaderboard:', err); }
@@ -250,9 +247,7 @@ export function AppProvider({ children }) {
   const refreshAdminStats = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/stats?sender_id=${currentUser.id}`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/admin/stats?sender_id=${currentUser.id}`, { headers: API_HEADERS });
       const data = await res.json();
       setAdminStats(data);
     } catch (err) { console.error('refreshAdminStats:', err); }
@@ -261,9 +256,7 @@ export function AppProvider({ children }) {
   const refreshAdminUsers = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/users?sender_id=${currentUser.id}`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
+      const res = await fetch(`${API_BASE}/admin/users?sender_id=${currentUser.id}`, { headers: API_HEADERS });
       const data = await res.json();
       setAdminUsers(data.users || []);
     } catch (err) { console.error('refreshAdminUsers:', err); }
@@ -273,15 +266,12 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/admin/users/${userId}?sender_id=${currentUser.id}`, {
         method: 'PATCH',
-        headers: { 
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify(updateData)
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshAdminUsers();
+        runInBackground(refreshAdminUsers);
         return true;
       }
       return false;
@@ -292,11 +282,11 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/admin/users/${userId}?sender_id=${currentUser.id}`, {
         method: 'DELETE',
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: API_HEADERS
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshAdminUsers();
+        runInBackground(refreshAdminUsers);
         return true;
       }
       return false;
@@ -307,16 +297,12 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/admin/spots?sender_id=${currentUser.id}`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify({ spotId, zoneId })
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshSpots();
-        await refreshAdminStats();
+        runInBackground(refreshSpots, refreshAdminStats);
         return true;
       }
       return false;
@@ -327,12 +313,11 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/admin/spots/${spotId}?sender_id=${currentUser.id}`, {
         method: 'DELETE',
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: API_HEADERS
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshSpots();
-        await refreshAdminStats();
+        runInBackground(refreshSpots, refreshAdminStats);
         return true;
       }
       return false;
@@ -343,16 +328,12 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/admin/zones/${zone_id}/status?sender_id=${currentUser.id}`, {
         method: 'PATCH',
-        headers: { 
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify({ active })
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshSpots();
-        await refreshAdminStats();
+        runInBackground(refreshSpots, refreshAdminStats);
         return true;
       } else {
         alert(data.message || 'Action failed');
@@ -365,16 +346,12 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/admin/spots/${spotId}/status?sender_id=${currentUser.id}`, {
         method: 'PATCH',
-        headers: { 
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify({ active })
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshSpots();
-        await refreshAdminStats();
+        runInBackground(refreshSpots, refreshAdminStats);
         return true;
       } else {
         alert(data.message || 'Action failed');
@@ -387,11 +364,11 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/admin/violations/${vId}?sender_id=${currentUser.id}`, {
         method: 'DELETE',
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: API_HEADERS
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshAdminStats();
+        runInBackground(refreshAdminStats);
         return true;
       }
       return false;
@@ -402,11 +379,11 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/admin/violations/${vId}/pay?sender_id=${currentUser.id}`, {
         method: 'PATCH',
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: API_HEADERS
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshAdminStats();
+        runInBackground(refreshAdminStats);
         return true;
       }
       return false;
@@ -417,11 +394,11 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/admin/bookings/${resId}/force-complete?sender_id=${currentUser.id}`, {
         method: 'POST',
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: API_HEADERS
       });
       const data = await res.json();
       if (data.status === 'success') {
-        await refreshAdminStats();
+        runInBackground(refreshAdminStats, refreshSpots);
         return true;
       } else {
         alert(data.message || 'Force complete failed');
@@ -436,10 +413,7 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true"
-        },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify({ email, password })
       });
       const data = await res.json();
@@ -461,10 +435,7 @@ export function AppProvider({ children }) {
     try {
       const res = await fetch(`${API_BASE}/auth/register`, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true"
-        },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify(userData)
       });
       const data = await res.json();
@@ -476,62 +447,75 @@ export function AppProvider({ children }) {
   };
 
   const bookSpot = async (bookingData) => {
+    const priceGuess = bookingData.estimatedPrice;
+    if (priceGuess) {
+      setCurrentUser(prev => prev ? { ...prev, walletBalance: Math.max(0, (prev.walletBalance || 0) - priceGuess) } : prev);
+    }
     try {
       const res = await fetch(`${API_BASE}/parking/book`, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true"
-        },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify(bookingData)
       });
       const data = await res.json();
       if (data.status === "success") {
-        await refreshSpots();
-        await refreshDashboard();
-        await refreshBookings();
-        await refreshWallet();
+        runInBackground(refreshSpots, refreshDashboard, refreshBookings, refreshWallet);
         return { success: true, price: data.price };
       } else {
+        runInBackground(refreshDashboard, refreshWallet);
         alert(data.message || 'Booking failed');
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      runInBackground(refreshDashboard, refreshWallet);
+      console.error(e);
+    }
     return { success: false };
   };
 
   const checkIn = async (resId) => {
+    setDashboardData(prev => ({ ...prev, history: patchStatus(prev.history || [], resId, 'active') }));
+    setBookings(prev => patchStatus(prev, resId, 'active'));
     try {
       const res = await fetch(`${API_BASE}/parking/arrive`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify({ reservationId: resId })
       });
       const data = await res.json();
       if (data.status === "success") {
-        refreshDashboard();
-        refreshBookings();
+        runInBackground(refreshDashboard, refreshBookings, refreshSpots);
         return true;
       }
+      runInBackground(refreshDashboard, refreshBookings);
       return false;
-    } catch (e) { console.error(e); return false; }
+    } catch (e) {
+      runInBackground(refreshDashboard, refreshBookings);
+      console.error(e);
+      return false;
+    }
   };
 
   const checkOut = async (resId) => {
+    setDashboardData(prev => ({ ...prev, history: patchStatus(prev.history || [], resId, 'completed') }));
+    setBookings(prev => patchStatus(prev, resId, 'completed'));
     try {
       const res = await fetch(`${API_BASE}/parking/leave`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+        headers: API_HEADERS_JSON,
         body: JSON.stringify({ reservationId: resId })
       });
       const data = await res.json();
       if (data.status === "success") {
-        refreshDashboard();
-        refreshBookings();
-        refreshViolations();
+        runInBackground(refreshDashboard, refreshBookings, refreshViolations, refreshSpots);
         return true;
       }
+      runInBackground(refreshDashboard, refreshBookings, refreshViolations);
       return false;
-    } catch (e) { console.error(e); return false; }
+    } catch (e) {
+      runInBackground(refreshDashboard, refreshBookings, refreshViolations);
+      console.error(e);
+      return false;
+    }
   };
 
   const logout = () => {
@@ -550,18 +534,21 @@ export function AppProvider({ children }) {
   // ===== AUTO-REFRESH =====
   useEffect(() => {
     refreshSpots();
-    const interval = setInterval(refreshSpots, 20000);
-    return () => clearInterval(interval);
+    const tick = () => {
+      if (document.visibilityState === 'visible') refreshSpots();
+    };
+    const interval = setInterval(tick, 60000);
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshSpots(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [refreshSpots]);
 
   useEffect(() => {
-    if (currentUser?.id) {
-      refreshDashboard();
-      refreshBookings();
-      refreshWallet();
-      refreshViolations();
-    }
-  }, [currentUser?.id]);
+    if (currentUser?.id) refreshUserData();
+  }, [currentUser?.id, refreshUserData]);
 
   const value = {
     currentUser,

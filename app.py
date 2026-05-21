@@ -592,6 +592,8 @@ def redeem_points(user_id):
 
 # ===== WALLET =====
 
+_wallet_backfill_done = set()
+
 def backfill_wallet_transactions(cursor, user_id):
     """Rebuild ledger rows when balance exists but history was never logged."""
     cursor.execute("SELECT COUNT(*) FROM Wallet_Transactions WHERE user_id = ?", (user_id,))
@@ -644,7 +646,9 @@ def get_wallet(user_id):
         row = cursor.fetchone()
         balance = float(row[0]) if row else 0
 
-        backfill_wallet_transactions(cursor, user_id)
+        if user_id not in _wallet_backfill_done:
+            backfill_wallet_transactions(cursor, user_id)
+            _wallet_backfill_done.add(user_id)
 
         cursor.execute(
             "SELECT trans_id, amount, type, description, created_at FROM Wallet_Transactions WHERE user_id = ? ORDER BY created_at DESC",

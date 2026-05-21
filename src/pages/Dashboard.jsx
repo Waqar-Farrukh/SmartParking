@@ -24,11 +24,10 @@ export default function Dashboard() {
   const [sessionBusy, setSessionBusy] = useState(false);
 
   useEffect(() => {
-    refreshDashboard();
     if (currentUser?.role === 'admin') {
       refreshAdminStats();
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, currentUser?.role]);
 
   useEffect(() => {
     if (!currentUser || !reservations) return;
@@ -85,7 +84,7 @@ export default function Dashboard() {
             setIsOverstay(false);
           }
         }
-      }, 1000);
+      }, 2000);
       return () => clearInterval(interval);
     }
   }, [reservations, currentUser?.id]);

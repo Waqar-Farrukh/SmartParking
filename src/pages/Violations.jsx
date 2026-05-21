@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { motion } from 'framer-motion';
 import { AlertTriangle, ShieldAlert, CheckCircle2, Loader2 } from 'lucide-react';
@@ -7,12 +7,11 @@ const staggerContainer = { hidden: { opacity: 0 }, show: { opacity: 1, transitio
 const itemAnim = { hidden: { opacity: 0, scale: 0.95, y: 20 }, show: { opacity: 1, scale: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } } };
 
 export default function Violations() {
-  const { currentUser, violations, triggerOverstays, payFine, refreshViolations } = useAppContext();
+  const { currentUser, violations, triggerOverstays, payFine } = useAppContext();
   const [payingId, setPayingId] = useState(null);
   const [checkingOverstays, setCheckingOverstays] = useState(false);
   const [notice, setNotice] = useState(null);
 
-  useEffect(() => { refreshViolations(); }, []);
 
   const handlePay = async (v) => {
     if (payingId) return;
