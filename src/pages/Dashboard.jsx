@@ -20,6 +20,8 @@ export default function Dashboard() {
   const [session, setSession] = useState(null);
   const [timeLeft, setTimeLeft] = useState('');
   const [isOverstay, setIsOverstay] = useState(false);
+  const [showDepartConfirm, setShowDepartConfirm] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
 
   useEffect(() => {
     refreshDashboard();
@@ -43,6 +45,9 @@ export default function Dashboard() {
     }
 
     setSession(primary || null);
+    if (!primary) {
+      setShowDepartConfirm(false);
+    }
 
     if (primary) {
       const interval = setInterval(() => {
@@ -86,6 +91,25 @@ export default function Dashboard() {
   }, [reservations, currentUser?.id]);
 
   if (!currentUser) return null;
+
+  const handleCheckIn = async (resId) => {
+    setSessionBusy(true);
+    try {
+      await checkIn(resId);
+    } finally {
+      setSessionBusy(false);
+    }
+  };
+
+  const handleCheckOut = async (resId) => {
+    setSessionBusy(true);
+    setShowDepartConfirm(false);
+    try {
+      await checkOut(resId);
+    } finally {
+      setSessionBusy(false);
+    }
+  };
 
   const recentBookings = currentUser?.role === 'admin' 
     ? (adminStats?.recentBookings || []).slice(0, 5) 
@@ -240,24 +264,44 @@ export default function Dashboard() {
             <div className="z-10 w-full md:w-auto">
               {session.status === 'reserved' ? (
                 <button 
-                  onClick={() => checkIn(session.id)}
-                  disabled={new Date() < new Date(session.startTime)}
+                  onClick={() => handleCheckIn(session.id)}
+                  disabled={sessionBusy || new Date() < new Date(session.startTime)}
                   className={`px-12 py-6 rounded-[2rem] font-display font-black text-sm uppercase tracking-widest transition-all ${
                     new Date() < new Date(session.startTime) 
                       ? 'bg-white/10 border border-white/20 text-white/40 cursor-not-allowed' 
-                      : 'bg-white text-blue-600 hover:scale-105 active:scale-95 shadow-2xl'
+                      : 'bg-white text-blue-600 hover:scale-105 active:scale-95 shadow-2xl disabled:opacity-60 disabled:hover:scale-100'
                   }`}
                 >
-                  {new Date() < new Date(session.startTime) ? 'Wait for Start' : 'Confirm Arrival'}
+                  {sessionBusy ? 'Processing…' : (new Date() < new Date(session.startTime) ? 'Wait for Start' : 'Confirm Arrival')}
                 </button>
+              ) : showDepartConfirm ? (
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <p className="text-xs font-bold uppercase tracking-widest opacity-80 mb-1 sm:mb-0 sm:mr-2 sm:self-center">
+                    {isOverstay ? 'Overstay fees may apply.' : 'End this session?'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowDepartConfirm(false)}
+                    disabled={sessionBusy}
+                    className="px-8 py-5 bg-white/10 border border-white/20 rounded-[2rem] font-display font-black text-xs uppercase tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCheckOut(session.id)}
+                    disabled={sessionBusy}
+                    className="px-8 py-5 bg-white text-v3-slate rounded-[2rem] font-display font-black text-xs uppercase tracking-widest shadow-2xl disabled:opacity-60"
+                  >
+                    {sessionBusy ? 'Processing…' : 'Yes, depart'}
+                  </button>
+                </div>
               ) : (
                 <button 
-                  onClick={() => {
-                    if(window.confirm(isOverstay ? "Finalize session? Overstay fees will be added." : "End session now?")) {
-                      checkOut(session.id);
-                    }
-                  }}
-                  className="px-12 py-6 bg-white text-v3-slate rounded-[2rem] font-display font-black text-sm uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-2xl"
+                  type="button"
+                  onClick={() => setShowDepartConfirm(true)}
+                  disabled={sessionBusy}
+                  className="px-12 py-6 bg-white text-v3-slate rounded-[2rem] font-display font-black text-sm uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-2xl disabled:opacity-60 disabled:hover:scale-100"
                 >
                   Confirm Departure
                 </button>

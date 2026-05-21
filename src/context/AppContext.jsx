@@ -508,8 +508,8 @@ export function AppProvider({ children }) {
       });
       const data = await res.json();
       if (data.status === "success") {
-        await refreshDashboard();
-        await refreshBookings();
+        refreshDashboard();
+        refreshBookings();
         return true;
       }
       return false;
@@ -525,7 +525,9 @@ export function AppProvider({ children }) {
       });
       const data = await res.json();
       if (data.status === "success") {
-        await Promise.all([refreshDashboard(), refreshBookings(), refreshViolations()]);
+        refreshDashboard();
+        refreshBookings();
+        refreshViolations();
         return true;
       }
       return false;
