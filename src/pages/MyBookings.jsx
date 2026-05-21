@@ -59,11 +59,13 @@ export default function MyBookings() {
                 <tr key={b.id} className="hover:bg-light-liveFeed/40 dark:hover:bg-white/5 transition-colors" style={{ borderBottom: '1px solid rgba(229,223,215,0.4)' }}>
                   <td className="p-8 font-display font-black text-2xl tracking-tighter dark:text-v3-teal" style={{ color: '#C26A5A' }}>{b.spotId}</td>
                   <td className="p-8 text-sm font-bold uppercase tracking-widest">
-                    <div className="flex items-center gap-3 mb-1">
+                    <div className="flex items-center gap-3">
                       <Clock size={16} className="opacity-40" />
                       <span className="dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{new Date(b.startTime).toLocaleString()}</span>
                     </div>
-                    <div className="flex items-center gap-3 opacity-40">
+                  </td>
+                  <td className="p-8 text-sm font-bold uppercase tracking-widest opacity-60">
+                    <div className="flex items-center gap-3">
                       <Clock size={16} />
                       <span className="dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>{new Date(b.endTime).toLocaleString()}</span>
                     </div>
