@@ -19,8 +19,8 @@ export function AppProvider({ children }) {
   const [theme, setTheme] = useState(localStorage.getItem('parking_theme') || 'light');
 
   const isAdmin = currentUser?.role === 'admin';
-  // Use environment variable for deployment, fallback to localhost for local dev
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000") + "/api";
+  // Use relative path for production (Vercel) to hit serverless functions directly
+  const API_BASE = import.meta.env.PROD ? "/api" : ((import.meta.env.VITE_API_URL || "http://localhost:5000") + "/api");
   
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';

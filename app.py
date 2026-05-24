@@ -9,6 +9,8 @@ from datetime import datetime
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from fpdf import FPDF
+import os
+os.environ['MPLCONFIGDIR'] = '/tmp'
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -1023,9 +1025,9 @@ def generate_pdf_report(report_type):
                 plt.plot(dates, revs, marker='o', color='#3b82f6', linewidth=2)
                 plt.fill_between(dates, revs, color='#3b82f6', alpha=0.1)
                 plt.title('Daily Revenue Trend (Last 7 Days)')
-                plt.savefig("temp_rev.png", bbox_inches='tight')
+                plt.savefig("/tmp/temp_rev.png", bbox_inches='tight')
                 plt.close()
-                pdf.image("temp_rev.png", x=10, w=190)
+                pdf.image("/tmp/temp_rev.png", x=10, w=190)
                 pdf.ln(10)
             pdf.set_fill_color(241, 245, 249); pdf.set_font('helvetica', 'B', 10)
             pdf.cell(60, 8, 'Date', 1, 0, 'C', 1); pdf.cell(60, 8, 'Revenue (PKR)', 1, 0, 'C', 1); pdf.cell(60, 8, 'Bookings', 1, 1, 'C', 1)
