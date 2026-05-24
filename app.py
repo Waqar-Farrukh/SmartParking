@@ -721,21 +721,99 @@ def admin_stats():
         rev = float(cursor.fetchone()[0])
         cursor.execute("SELECT COUNT(*) FROM Users")
         users = cursor.fetchone()[0]
+        
         cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'active' AND end_time > GETUTCDATE()")
         active = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'completed'")
+        completed = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'cancelled'")
+        cancelled = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM Reservations")
+        total_bookings = cursor.fetchone()[0]
+        
         cursor.execute("SELECT COUNT(*) FROM Violations")
         violations_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM Violations WHERE is_paid = 0")
+        unpaid_violations = cursor.fetchone()[0]
 
+        # Daily Revenue
         cursor.execute("SELECT CAST(created_at AS DATE), SUM(final_price) FROM Reservations WHERE status != 'cancelled' AND created_at >= DATEADD(day, -7, GETUTCDATE()) GROUP BY CAST(created_at AS DATE) ORDER BY 1")
         daily_rev = [{"day": str(r[0]), "revenue": float(r[1])} for r in cursor.fetchall()]
 
-        cursor.execute("SELECT v.violation_id, u.name, v.fine_amount, v.is_paid, v.created_at FROM Violations v JOIN Reservations r ON v.reservation_id = r.reservation_id JOIN Users u ON r.user_id = u.user_id ORDER BY v.created_at DESC")
-        v_list = [{"id": r[0], "userName": r[1], "fineAmount": float(r[2]), "isPaid": bool(r[3]), "createdAt": str(r[4])} for r in cursor.fetchall()]
+        # Daily Bookings
+        cursor.execute("SELECT CAST(created_at AS DATE), COUNT(*) FROM Reservations WHERE created_at >= DATEADD(day, -7, GETUTCDATE()) GROUP BY CAST(created_at AS DATE) ORDER BY 1")
+        daily_bookings = [{"day": str(r[0]), "count": int(r[1])} for r in cursor.fetchall()]
 
-        cursor.execute("SELECT TOP 10 r.reservation_id, u.name, r.spot_id, r.status, r.final_price FROM Reservations r JOIN Users u ON r.user_id = u.user_id ORDER BY r.created_at DESC")
-        recent = [{"id": r[0], "userName": r[1], "spotId": r[2], "status": r[3], "finalPrice": float(r[4])} for r in cursor.fetchall()]
+        # Violations List
+        cursor.execute("SELECT v.violation_id, u.user_id, u.name, v.fine_amount, v.is_paid, v.created_at, v.reservation_id FROM Violations v JOIN Reservations r ON v.reservation_id = r.reservation_id JOIN Users u ON r.user_id = u.user_id ORDER BY v.created_at DESC")
+        v_list = [{"id": r[0], "userId": r[1], "userName": r[2], "fineAmount": float(r[3]), "isPaid": bool(r[4]), "createdAt": str(r[5]), "reservationId": r[6]} for r in cursor.fetchall()]
 
-        return jsonify({"totalRevenue": rev, "totalUsers": users, "activeBookings": active, "totalViolations": violations_count, "dailyRevenue": daily_rev, "violations": v_list, "recentBookings": recent})
+        # Recent Bookings
+        cursor.execute("SELECT TOP 10 r.reservation_id, u.name, r.spot_id, r.start_time, r.end_time, r.status, r.final_price FROM Reservations r JOIN Users u ON r.user_id = u.user_id ORDER BY r.created_at DESC")
+        recent = [{"id": r[0], "userName": r[1], "spotId": r[2], "startTime": str(r[3]), "endTime": str(r[4]), "status": r[5], "finalPrice": float(r[6])} for r in cursor.fetchall()]
+
+        # Zone Occupancy & Pricing State
+        # First, find total active spots per zone
+        cursor.execute("SELECT zone_id, COUNT(*) FROM Parking_Spots GROUP BY zone_id")
+        zone_totals = {str(r[0]).strip(): r[1] for r in cursor.fetchall()}
+        
+        cursor.execute("SELECT zone_id, SUM(CAST(is_active AS INT)) FROM Parking_Spots GROUP BY zone_id")
+        zone_online = {str(r[0]).strip(): r[1] for r in cursor.fetchall()}
+
+        # Active active bookings right now
+        cursor.execute("""
+            SELECT p.zone_id, COUNT(*)
+            FROM Reservations r
+            JOIN Parking_Spots p ON r.spot_id = p.spot_id
+            WHERE r.status IN ('reserved', 'active') 
+              AND r.end_time > GETUTCDATE()
+            GROUP BY p.zone_id
+        """)
+        zone_active_counts = {str(r[0]).strip(): r[1] for r in cursor.fetchall()}
+
+        zone_occupancy = []
+        pricing_state = []
+        for z in ['A', 'B', 'C']:
+            total_spots = zone_totals.get(z, 0)
+            occupied = zone_active_counts.get(z, 0)
+            online_count = zone_online.get(z, 0)
+            available = total_spots - occupied if total_spots > occupied else 0
+            
+            zone_occupancy.append({
+                "zone": z,
+                "total": total_spots,
+                "occupied": occupied,
+                "available": available,
+                "online": online_count
+            })
+            
+            occupancy_percent = (occupied / total_spots * 100) if total_spots > 0 else 0
+            pricing_state.append({
+                "zone": z,
+                "occupancyPercent": int(occupancy_percent),
+                "surgeActive": occupancy_percent > 80
+            })
+
+        return jsonify({
+            "totalRevenue": rev, 
+            "totalUsers": users, 
+            "activeBookings": active, 
+            "completedBookings": completed,
+            "cancelledBookings": cancelled,
+            "totalBookings": total_bookings,
+            "totalViolations": violations_count, 
+            "unpaidViolations": unpaid_violations,
+            "dailyRevenue": daily_rev, 
+            "dailyBookings": daily_bookings,
+            "zoneOccupancy": zone_occupancy,
+            "pricingState": pricing_state,
+            "violations": v_list, 
+            "recentBookings": recent
+        })
     finally:
         conn.close()
 
