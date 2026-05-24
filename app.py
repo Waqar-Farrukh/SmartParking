@@ -956,33 +956,99 @@ def mark_violation_paid(v_id):
 
 # ===== REPORTS =====
 
+def _pdf_bytes(pdf):
+    """fpdf2 may return str, bytearray, or bytes depending on version."""
+    out = pdf.output()
+    if isinstance(out, bytes):
+        return out
+    if isinstance(out, bytearray):
+        return bytes(out)
+    return out.encode('latin-1')
+
+
+def _pdf_response(pdf, filename):
+    return Response(
+        _pdf_bytes(pdf),
+        mimetype='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Access-Control-Expose-Headers': 'Content-Disposition',
+        },
+    )
+
+
+def _csv_response(csv_text, filename):
+    return Response(
+        '\ufeff' + csv_text,
+        mimetype='text/csv; charset=utf-8',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Access-Control-Expose-Headers': 'Content-Disposition',
+        },
+    )
+
+
 @app.route('/api/reports/<report_type>', methods=['GET'])
 def generate_report(report_type):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized. Admin access required."}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
         output = io.StringIO()
         writer = csv.writer(output)
+
         if report_type == 'revenue':
-            writer.writerow(['Date', 'Revenue'])
-            cursor.execute("SELECT CAST(created_at AS DATE), SUM(final_price) FROM Reservations WHERE status != 'cancelled' GROUP BY CAST(created_at AS DATE) ORDER BY 1 DESC")
-            for r in cursor.fetchall(): writer.writerow([str(r[0]), float(r[1])])
+            writer.writerow(['Date', 'Total Revenue', 'Bookings Count'])
+            cursor.execute("""
+                SELECT CAST(created_at AS DATE), SUM(final_price), COUNT(*)
+                FROM Reservations WHERE status != 'cancelled'
+                GROUP BY CAST(created_at AS DATE) ORDER BY 1 DESC
+            """)
+            for r in cursor.fetchall():
+                writer.writerow([str(r[0]), float(r[1]), r[2]])
+
         elif report_type == 'customers':
-            writer.writerow(['User ID', 'Name', 'Total Spent'])
-            cursor.execute("SELECT u.user_id, u.name, SUM(r.final_price) FROM Users u JOIN Reservations r ON u.user_id = r.user_id WHERE r.status != 'cancelled' GROUP BY u.user_id, u.name ORDER BY 3 DESC")
-            for r in cursor.fetchall(): writer.writerow([r[0], r[1], float(r[2])])
+            writer.writerow(['User ID', 'Name', 'Email', 'Total Spent', 'Bookings'])
+            cursor.execute("""
+                SELECT u.user_id, u.name, u.email,
+                    ISNULL(SUM(r.final_price), 0), COUNT(r.reservation_id)
+                FROM Users u
+                LEFT JOIN Reservations r ON u.user_id = r.user_id AND r.status != 'cancelled'
+                GROUP BY u.user_id, u.name, u.email
+                ORDER BY 4 DESC
+            """)
+            for r in cursor.fetchall():
+                writer.writerow([r[0], r[1], r[2], float(r[3]), r[4]])
+
         elif report_type == 'leaderboard':
-            writer.writerow(['Rank', 'Name', 'Points'])
-            cursor.execute("SELECT u.name, lp.points FROM Users u JOIN Loyalty_Points lp ON u.user_id = lp.user_id ORDER BY lp.points DESC")
-            for i, r in enumerate(cursor.fetchall(), 1): writer.writerow([i, r[0], r[1]])
+            writer.writerow(['Rank', 'User ID', 'Name', 'Points', 'Lifetime Points'])
+            cursor.execute("""
+                SELECT u.user_id, u.name, lp.points, lp.lifetime_points
+                FROM Users u JOIN Loyalty_Points lp ON u.user_id = lp.user_id
+                ORDER BY lp.points DESC
+            """)
+            for i, r in enumerate(cursor.fetchall(), 1):
+                writer.writerow([i, r[0], r[1], r[2], r[3]])
+
         elif report_type == 'violations':
-            writer.writerow(['ID', 'Fine', 'Status'])
-            cursor.execute("SELECT violation_id, fine_amount, is_paid FROM Violations")
-            for r in cursor.fetchall(): writer.writerow([r[0], float(r[1]), 'Paid' if r[2] else 'Unpaid'])
-        return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={report_type}.csv'})
-    finally: conn.close()
+            writer.writerow(['Violation ID', 'User ID', 'Reservation ID', 'Fine Amount', 'Status', 'Date'])
+            cursor.execute("""
+                SELECT v.violation_id, r.user_id, v.reservation_id, v.fine_amount,
+                    CASE WHEN v.is_paid = 1 THEN 'Paid' ELSE 'Unpaid' END, v.created_at
+                FROM Violations v
+                JOIN Reservations r ON v.reservation_id = r.reservation_id
+                ORDER BY v.created_at DESC
+            """)
+            for r in cursor.fetchall():
+                writer.writerow([r[0], r[1], r[2], float(r[3]), r[4], str(r[5])])
+        else:
+            return jsonify({"status": "error", "message": "Unknown report type"}), 400
+
+        return _csv_response(output.getvalue(), f'{report_type}_report.csv')
+    finally:
+        conn.close()
 
 # --- PDF ENGINE ---
 
@@ -1006,7 +1072,8 @@ class PDF_Report(FPDF):
 @app.route('/api/reports/pdf/<report_type>', methods=['GET'])
 def generate_pdf_report(report_type):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    if not is_admin(sender_id):
+        return jsonify({"status": "error", "message": "Unauthorized. Admin access required."}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -1014,64 +1081,143 @@ def generate_pdf_report(report_type):
         pdf.add_page()
         pdf.set_font("helvetica", size=12)
         pdf.set_text_color(0, 0, 0)
+        generated = False
 
         if report_type == 'revenue':
+            generated = True
             pdf.set_font('helvetica', 'B', 14)
             pdf.cell(0, 10, "Revenue Analysis Hub", 0, 1, 'L')
             pdf.ln(5)
-            cursor.execute("SELECT CAST(created_at AS DATE), SUM(final_price), COUNT(*) FROM Reservations WHERE status != 'cancelled' GROUP BY CAST(created_at AS DATE) ORDER BY 1 DESC")
+            cursor.execute("""
+                SELECT CAST(created_at AS DATE), SUM(final_price), COUNT(*)
+                FROM Reservations WHERE status != 'cancelled'
+                GROUP BY CAST(created_at AS DATE) ORDER BY 1 DESC
+            """)
             data = cursor.fetchall()
             if data:
-                dates = [str(r[0]) for r in reversed(data[:7])]
-                revs = [float(r[1]) for r in reversed(data[:7])]
-                plt.figure(figsize=(10, 4))
-                plt.plot(dates, revs, marker='o', color='#3b82f6', linewidth=2)
-                plt.fill_between(dates, revs, color='#3b82f6', alpha=0.1)
-                plt.title('Daily Revenue Trend (Last 7 Days)')
-                img_path = os.path.join(temp_dir, "temp_rev.png")
-                plt.savefig(img_path, bbox_inches='tight')
-                plt.close()
-                pdf.image(img_path, x=10, w=190)
-                pdf.ln(10)
-            pdf.set_fill_color(241, 245, 249); pdf.set_font('helvetica', 'B', 10)
-            pdf.cell(60, 8, 'Date', 1, 0, 'C', 1); pdf.cell(60, 8, 'Revenue (PKR)', 1, 0, 'C', 1); pdf.cell(60, 8, 'Bookings', 1, 1, 'C', 1)
+                try:
+                    dates = [str(r[0]) for r in reversed(data[:7])]
+                    revs = [float(r[1]) for r in reversed(data[:7])]
+                    plt.figure(figsize=(10, 4))
+                    plt.plot(dates, revs, marker='o', color='#3b82f6', linewidth=2)
+                    plt.fill_between(dates, revs, color='#3b82f6', alpha=0.1)
+                    plt.title('Daily Revenue Trend (Last 7 Days)')
+                    img_path = os.path.join(temp_dir, f"temp_rev_{int(time.time())}.png")
+                    plt.savefig(img_path, bbox_inches='tight')
+                    plt.close()
+                    if os.path.isfile(img_path):
+                        pdf.image(img_path, x=10, w=190)
+                        pdf.ln(10)
+                        try:
+                            os.remove(img_path)
+                        except OSError:
+                            pass
+                except Exception:
+                    plt.close()
+            pdf.set_fill_color(241, 245, 249)
+            pdf.set_font('helvetica', 'B', 10)
+            pdf.cell(60, 8, 'Date', 1, 0, 'C', 1)
+            pdf.cell(60, 8, 'Revenue (PKR)', 1, 0, 'C', 1)
+            pdf.cell(60, 8, 'Bookings', 1, 1, 'C', 1)
             pdf.set_font('helvetica', '', 10)
             for r in data:
-                pdf.cell(60, 8, str(r[0]), 1, 0, 'C'); pdf.cell(60, 8, f"{float(r[1]):,.2f}", 1, 0, 'C'); pdf.cell(60, 8, str(r[2]), 1, 1, 'C')
+                pdf.cell(60, 8, str(r[0]), 1, 0, 'C')
+                pdf.cell(60, 8, f"{float(r[1]):,.2f}", 1, 0, 'C')
+                pdf.cell(60, 8, str(r[2]), 1, 1, 'C')
 
         elif report_type == 'customers':
-            pdf.set_font('helvetica', 'B', 14); pdf.cell(0, 10, "Customer Engagement", 0, 1, 'L'); pdf.ln(5)
-            cursor.execute("SELECT TOP 15 u.name, u.email, SUM(r.final_price), COUNT(r.reservation_id) FROM Users u JOIN Reservations r ON u.user_id = r.user_id WHERE r.status != 'cancelled' GROUP BY u.name, u.email ORDER BY 3 DESC")
+            generated = True
+            pdf.set_font('helvetica', 'B', 14)
+            pdf.cell(0, 10, "Customer Engagement", 0, 1, 'L')
+            pdf.ln(5)
+            cursor.execute("""
+                SELECT u.user_id, u.name, u.email,
+                    ISNULL(SUM(r.final_price), 0), COUNT(r.reservation_id)
+                FROM Users u
+                LEFT JOIN Reservations r ON u.user_id = r.user_id AND r.status != 'cancelled'
+                GROUP BY u.user_id, u.name, u.email
+                ORDER BY 4 DESC
+            """)
             data = cursor.fetchall()
-            pdf.set_fill_color(241, 245, 249); pdf.set_font('helvetica', 'B', 10)
-            pdf.cell(60, 8, 'Name', 1, 0, 'C', 1); pdf.cell(60, 8, 'Email', 1, 0, 'C', 1); pdf.cell(40, 8, 'Spent', 1, 0, 'C', 1); pdf.cell(30, 8, 'Bookings', 1, 1, 'C', 1)
-            pdf.set_font('helvetica', '', 9)
+            pdf.set_fill_color(241, 245, 249)
+            pdf.set_font('helvetica', 'B', 9)
+            pdf.cell(15, 8, 'ID', 1, 0, 'C', 1)
+            pdf.cell(45, 8, 'Name', 1, 0, 'C', 1)
+            pdf.cell(55, 8, 'Email', 1, 0, 'C', 1)
+            pdf.cell(40, 8, 'Spent (PKR)', 1, 0, 'C', 1)
+            pdf.cell(35, 8, 'Bookings', 1, 1, 'C', 1)
+            pdf.set_font('helvetica', '', 8)
             for r in data:
-                pdf.cell(60, 8, str(r[0])[:25], 1, 0, 'L'); pdf.cell(60, 8, str(r[1])[:25], 1, 0, 'L'); pdf.cell(40, 8, f"{float(r[2]):,.0f} PKR", 1, 0, 'R'); pdf.cell(30, 8, str(r[3]), 1, 1, 'C')
+                pdf.cell(15, 8, str(r[0]), 1, 0, 'C')
+                pdf.cell(45, 8, str(r[1])[:22], 1, 0, 'L')
+                pdf.cell(55, 8, str(r[2])[:28], 1, 0, 'L')
+                pdf.cell(40, 8, f"{float(r[3]):,.0f}", 1, 0, 'R')
+                pdf.cell(35, 8, str(r[4]), 1, 1, 'C')
 
         elif report_type == 'violations':
-            pdf.set_font('helvetica', 'B', 14); pdf.cell(0, 10, "Zonal Violation Audit", 0, 1, 'L'); pdf.ln(5)
-            cursor.execute("SELECT TOP 20 v.violation_id, r.user_id, v.fine_amount, CASE WHEN v.is_paid = 1 THEN 'PAID' ELSE 'UNPAID' END FROM Violations v JOIN Reservations r ON v.reservation_id = r.reservation_id ORDER BY v.created_at DESC")
+            generated = True
+            pdf.set_font('helvetica', 'B', 14)
+            pdf.cell(0, 10, "Violation Compliance Audit", 0, 1, 'L')
+            pdf.ln(5)
+            cursor.execute("""
+                SELECT v.violation_id, r.user_id, v.reservation_id, v.fine_amount,
+                    CASE WHEN v.is_paid = 1 THEN 'Paid' ELSE 'Unpaid' END, v.created_at
+                FROM Violations v
+                JOIN Reservations r ON v.reservation_id = r.reservation_id
+                ORDER BY v.created_at DESC
+            """)
             data = cursor.fetchall()
-            pdf.set_fill_color(241, 245, 249); pdf.set_font('helvetica', 'B', 10)
-            pdf.cell(40, 8, 'ID', 1, 0, 'C', 1); pdf.cell(40, 8, 'User ID', 1, 0, 'C', 1); pdf.cell(60, 8, 'Fine', 1, 0, 'C', 1); pdf.cell(50, 8, 'Status', 1, 1, 'C', 1)
-            pdf.set_font('helvetica', '', 10)
+            pdf.set_fill_color(241, 245, 249)
+            pdf.set_font('helvetica', 'B', 9)
+            pdf.cell(25, 8, 'Violation ID', 1, 0, 'C', 1)
+            pdf.cell(25, 8, 'User ID', 1, 0, 'C', 1)
+            pdf.cell(30, 8, 'Reservation', 1, 0, 'C', 1)
+            pdf.cell(35, 8, 'Fine (PKR)', 1, 0, 'C', 1)
+            pdf.cell(25, 8, 'Status', 1, 0, 'C', 1)
+            pdf.cell(50, 8, 'Date', 1, 1, 'C', 1)
+            pdf.set_font('helvetica', '', 8)
             for r in data:
-                pdf.cell(40, 8, str(r[0]), 1, 0, 'C'); pdf.cell(40, 8, str(r[1]), 1, 0, 'C'); pdf.cell(60, 8, f"{float(r[2])} PKR", 1, 0, 'C'); pdf.cell(50, 8, r[3], 1, 1, 'C')
+                pdf.cell(25, 8, str(r[0]), 1, 0, 'C')
+                pdf.cell(25, 8, str(r[1]), 1, 0, 'C')
+                pdf.cell(30, 8, str(r[2]), 1, 0, 'C')
+                pdf.cell(35, 8, f"{float(r[3]):,.0f}", 1, 0, 'C')
+                pdf.cell(25, 8, str(r[4]), 1, 0, 'C')
+                pdf.cell(50, 8, str(r[5])[:19], 1, 1, 'C')
 
         elif report_type == 'leaderboard':
-            pdf.set_font('helvetica', 'B', 14); pdf.cell(0, 10, "Points Leaderboard", 0, 1, 'L'); pdf.ln(5)
-            cursor.execute("SELECT TOP 20 u.name, lp.points, lp.lifetime_points FROM Users u JOIN Loyalty_Points lp ON u.user_id = lp.user_id ORDER BY lp.points DESC")
+            generated = True
+            pdf.set_font('helvetica', 'B', 14)
+            pdf.cell(0, 10, "Points Leaderboard", 0, 1, 'L')
+            pdf.ln(5)
+            cursor.execute("""
+                SELECT u.user_id, u.name, lp.points, lp.lifetime_points
+                FROM Users u JOIN Loyalty_Points lp ON u.user_id = lp.user_id
+                ORDER BY lp.points DESC
+            """)
             data = cursor.fetchall()
-            pdf.set_fill_color(241, 245, 249); pdf.set_font('helvetica', 'B', 10)
-            pdf.cell(80, 8, 'Name', 1, 0, 'C', 1); pdf.cell(50, 8, 'Points', 1, 0, 'C', 1); pdf.cell(60, 8, 'Lifetime', 1, 1, 'C', 1)
-            pdf.set_font('helvetica', '', 10)
-            for r in data:
-                pdf.cell(80, 8, str(r[0])[:30], 1, 0, 'L'); pdf.cell(50, 8, str(r[1]), 1, 0, 'C'); pdf.cell(60, 8, str(r[2]), 1, 1, 'C')
+            pdf.set_fill_color(241, 245, 249)
+            pdf.set_font('helvetica', 'B', 10)
+            pdf.cell(20, 8, 'Rank', 1, 0, 'C', 1)
+            pdf.cell(20, 8, 'User ID', 1, 0, 'C', 1)
+            pdf.cell(70, 8, 'Name', 1, 0, 'C', 1)
+            pdf.cell(40, 8, 'Points', 1, 0, 'C', 1)
+            pdf.cell(40, 8, 'Lifetime', 1, 1, 'C', 1)
+            pdf.set_font('helvetica', '', 9)
+            for i, r in enumerate(data, 1):
+                pdf.cell(20, 8, str(i), 1, 0, 'C')
+                pdf.cell(20, 8, str(r[0]), 1, 0, 'C')
+                pdf.cell(70, 8, str(r[1])[:32], 1, 0, 'L')
+                pdf.cell(40, 8, str(r[2]), 1, 0, 'C')
+                pdf.cell(40, 8, str(r[3]), 1, 1, 'C')
 
-        return Response(pdf.output(), mimetype='application/pdf', headers={'Content-Disposition': f'attachment; filename={report_type}.pdf'})
-    except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
-    finally: conn.close()
+        if not generated:
+            return jsonify({"status": "error", "message": "Unknown report type"}), 400
+
+        return _pdf_response(pdf, f'{report_type}_report.pdf')
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
