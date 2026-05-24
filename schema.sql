@@ -10,9 +10,8 @@ GO
 
 PRINT '--- RESETTING DATABASE STARTED ---';
 
--- ====================================================================
--- 0. Clean Up (Order matters for Foreign Keys!)
--- ====================================================================
+
+
 DROP TABLE IF EXISTS Wallet_Transactions;
 DROP TABLE IF EXISTS Discounts;
 DROP TABLE IF EXISTS Transactions;
@@ -57,24 +56,9 @@ CREATE TABLE Parking_Spots (
     zone_id CHAR(1) NOT NULL,
     is_active BIT DEFAULT 1
 );
-GO
 
-CREATE TRIGGER trg_MaxSpotsPerZone
-ON Parking_Spots
-AFTER INSERT, UPDATE
-AS
-BEGIN
-    IF EXISTS (
-        SELECT zone_id
-        FROM Parking_Spots
-        GROUP BY zone_id
-        HAVING COUNT(*) > 20
-    )
-    BEGIN
-        RAISERROR ('Maximum capacity reached. A zone cannot have more than 20 parking spots.', 16, 1);
-        ROLLBACK TRANSACTION;
-    END
-END;
+
+
 GO
 
 -- 2.4 Reservations
@@ -145,13 +129,6 @@ CREATE TABLE Wallet_Transactions (
 );
 GO
 
--- ====================================================================
--- 3. Sample Data
--- ====================================================================
-
--- ====================================================================
--- 3. Sample Data (Rich Dataset for Presentation)
--- ====================================================================
 
 -- 3.1 Vehicle_Types
 INSERT INTO Vehicle_Types (name, base_rate) VALUES
@@ -161,7 +138,6 @@ INSERT INTO Vehicle_Types (name, base_rate) VALUES
 GO
 
 -- 3.2 Parking_Spots
--- 30 Total Spots
 INSERT INTO Parking_Spots (spot_id, zone_id, is_active) VALUES
 ('A01','A', 1),('A02','A', 1),('A03','A', 0),('A04','A', 1),('A05','A', 0),
 ('A06','A', 1),('A07','A', 1),('A08','A', 1),('A09','A', 1),('A10','A', 1),
@@ -172,7 +148,7 @@ INSERT INTO Parking_Spots (spot_id, zone_id, is_active) VALUES
 GO
 
 -- 3.3 Users
--- Passwords: 'admin123' for admin, 'user123' for others
+
 INSERT INTO Users (name, email, phone, vehicle_plate, vehicle_type_id, password, wallet_balance, referral_code, role)
 VALUES
 ('Admin Center', 'admin@example.com', '03001112222', 'ADMIN-001', 2, CONVERT(NVARCHAR(64), HASHBYTES('SHA2_256', 'admin123'), 2), 5000.00, 'ADMINSHIELD', 'admin'),
@@ -194,10 +170,10 @@ INSERT INTO Loyalty_Points (user_id, points, lifetime_points) VALUES
 GO
 
 -- 3.5 Reservations
--- UPDATED ZONAL DISTRIBUTION: 4 in Zone A, 6 in Zone B, 3 in Zone C
+
 INSERT INTO Reservations (user_id, spot_id, start_time, end_time, status, final_price, points_earned, created_at)
 VALUES
--- Zone A (7 Active - Surge Triggered)
+-- Zone A
 (1, 'A01', DATEADD(MINUTE, -30, GETUTCDATE()), DATEADD(HOUR, 2, GETUTCDATE()), 'active', 160.00, 1600, GETUTCDATE()),
 (2, 'A02', DATEADD(MINUTE, -45, GETUTCDATE()), DATEADD(HOUR, 4, GETUTCDATE()), 'active', 320.00, 3200, GETUTCDATE()),
 (3, 'A04', DATEADD(HOUR, -1, GETUTCDATE()), DATEADD(HOUR, 3, GETUTCDATE()), 'active', 400.00, 4000, GETUTCDATE()),
@@ -206,7 +182,7 @@ VALUES
 (6, 'A08', DATEADD(MINUTE, -10, GETUTCDATE()), DATEADD(HOUR, 2, GETUTCDATE()), 'active', 160.00, 1600, GETUTCDATE()),
 (7, 'A09', DATEADD(MINUTE, -5, GETUTCDATE()), DATEADD(HOUR, 3, GETUTCDATE()), 'active', 240.00, 2400, GETUTCDATE()),
 
--- Zone B (6 Active)
+-- Zone B
 (5, 'B01', DATEADD(MINUTE, -15, GETUTCDATE()), DATEADD(HOUR, 2, GETUTCDATE()), 'active', 240.00, 2400, GETUTCDATE()),
 (6, 'B03', DATEADD(HOUR, -1, GETUTCDATE()), DATEADD(HOUR, 4, GETUTCDATE()), 'active', 300.00, 3000, GETUTCDATE()),
 (7, 'B05', DATEADD(MINUTE, -40, GETUTCDATE()), DATEADD(HOUR, 3, GETUTCDATE()), 'active', 150.00, 1500, GETUTCDATE()),
@@ -214,7 +190,7 @@ VALUES
 (9, 'B08', DATEADD(MINUTE, -10, GETUTCDATE()), DATEADD(HOUR, 6, GETUTCDATE()), 'active', 560.00, 5600, GETUTCDATE()),
 (10, 'B10', DATEADD(HOUR, -1, GETUTCDATE()), DATEADD(HOUR, 2, GETUTCDATE()), 'active', 320.00, 3200, GETUTCDATE()),
 
--- Zone C (3 Active)
+-- Zone C 
 (2, 'C01', DATEADD(MINUTE, -50, GETUTCDATE()), DATEADD(HOUR, 4, GETUTCDATE()), 'active', 360.00, 3600, GETUTCDATE()),
 (3, 'C03', DATEADD(HOUR, -1, GETUTCDATE()), DATEADD(HOUR, 3, GETUTCDATE()), 'active', 120.00, 1200, GETUTCDATE()),
 (5, 'C05', DATEADD(MINUTE, -20, GETUTCDATE()), DATEADD(HOUR, 1, GETUTCDATE()), 'active', 240.00, 2400, GETUTCDATE()),
@@ -244,3 +220,25 @@ VALUES
 GO
 
 select * from USERS;
+
+
+DROP FUNCTION IF EXISTS dbo.GetDynamicRate;
+
+DROP TRIGGER IF EXISTS trg_MaxSpotsPerZone;
+GO
+CREATE TRIGGER trg_MaxSpotsPerZone
+ON Parking_Spots
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    IF EXISTS (
+        SELECT zone_id
+        FROM Parking_Spots
+        GROUP BY zone_id
+        HAVING COUNT(*) > 20
+    )
+    BEGIN
+        RAISERROR ('Maximum capacity reached. A zone cannot have more than 20 parking spots.', 16, 1);
+        ROLLBACK TRANSACTION;
+    END
+END;
