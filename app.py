@@ -376,9 +376,6 @@ def user_dashboard(user_id):
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # Note: We no longer auto-complete sessions here. 
-        # A session stays 'active' until the user manually leaves.
-        
         cursor.execute("SELECT wallet_balance, referral_code FROM Users WHERE user_id = ?", (user_id,))
         user_row = cursor.fetchone()
         wallet = float(user_row[0]) if user_row else 0
@@ -389,7 +386,6 @@ def user_dashboard(user_id):
         points = lp_row[0] if lp_row else 0
         lifetime_points = lp_row[1] if lp_row else 0
 
-        # Return reservations with statuses: reserved, active, completed, etc.
         cursor.execute(
             "SELECT TOP 5 reservation_id, spot_id, start_time, end_time, status, final_price FROM Reservations WHERE user_id = ? ORDER BY reservation_id DESC",
             (user_id,)
@@ -452,30 +448,21 @@ def pay_violation(user_id):
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # Get fine amount
         cursor.execute("SELECT fine_amount FROM Violations WHERE violation_id = ? AND is_paid = 0", (violation_id,))
         row = cursor.fetchone()
         if not row:
             return jsonify({"status": "error", "message": "Violation not found or already paid"}), 404
-
         fine = float(row[0])
-
-        # Check wallet balance
         cursor.execute("SELECT wallet_balance FROM Users WHERE user_id = ?", (user_id,))
         balance = float(cursor.fetchone()[0])
         if balance < fine:
             return jsonify({"status": "error", "message": "Insufficient wallet balance"}), 400
-
-        # Deduct and mark paid
         cursor.execute("UPDATE Users SET wallet_balance = wallet_balance - ? WHERE user_id = ?", (fine, user_id))
         cursor.execute("UPDATE Violations SET is_paid = 1 WHERE violation_id = ?", (violation_id,))
-
-        # Log wallet transaction
         cursor.execute(
             "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'fine', ?)",
             (user_id, fine, f'Violation #{violation_id} fine payment')
         )
-
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
@@ -484,18 +471,15 @@ def pay_violation(user_id):
 
 @app.route('/api/user/<int:user_id>/violations/check', methods=['POST'])
 def check_overstays(user_id):
-    """Check for expired active reservations and create violations."""
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # Find active reservations that have expired
         cursor.execute("""
             SELECT reservation_id, end_time
             FROM Reservations
             WHERE user_id = ? AND status = 'active' AND end_time < GETUTCDATE()
         """, (user_id,))
         expired = cursor.fetchall()
-
         created = 0
         now = datetime.utcnow()
         for r in expired:
@@ -514,7 +498,6 @@ def check_overstays(user_id):
                 (res_id,)
             )
 
-        # Close reserved sessions that ended without check-in (no fine)
         cursor.execute("""
             SELECT reservation_id FROM Reservations
             WHERE user_id = ? AND status = 'reserved' AND end_time < GETUTCDATE()
@@ -524,10 +507,7 @@ def check_overstays(user_id):
                 "UPDATE Reservations SET status = 'completed' WHERE reservation_id = ? AND status = 'reserved'",
                 (row[0],)
             )
-
         return jsonify({"status": "success", "violationsCreated": created})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
@@ -542,7 +522,6 @@ def get_loyalty(user_id):
         row = cursor.fetchone()
         points = row[0] if row else 0
         lifetime = row[1] if row else 0
-
         cursor.execute(
             "SELECT transaction_id, points_change, reason, created_at FROM Transactions WHERE user_id = ? ORDER BY created_at DESC",
             (user_id,)
@@ -555,7 +534,6 @@ def get_loyalty(user_id):
                 "reason": r[2],
                 "date": r[3].isoformat() if r[3] else ''
             })
-
         return jsonify({"points": points, "lifetimePoints": lifetime, "transactions": txs})
     finally:
         conn.close()
@@ -569,77 +547,15 @@ def redeem_points(user_id):
         row = cursor.fetchone()
         if not row or row[0] < 500:
             return jsonify({"status": "error", "message": "Need at least 500 points"}), 400
-
-        # Generate discount code
         code = f"DISC-{user_id}-{int(time.time()) % 10000}"
-
-        # Deduct points
         cursor.execute("UPDATE Loyalty_Points SET points = points - 500 WHERE user_id = ?", (user_id,))
-
-        # Create discount
-        cursor.execute(
-            "INSERT INTO Discounts (user_id, code, amount_off, used) VALUES (?, ?, 50.00, 0)",
-            (user_id, code)
-        )
-
-        # Log transaction
-        cursor.execute(
-            "INSERT INTO Transactions (user_id, points_change, reason) VALUES (?, -500, ?)",
-            (user_id, f'Redeemed for coupon {code}')
-        )
-
+        cursor.execute("INSERT INTO Discounts (user_id, code, amount_off, used) VALUES (?, ?, 50.00, 0)", (user_id, code))
+        cursor.execute("INSERT INTO Transactions (user_id, points_change, reason) VALUES (?, -500, ?)", (user_id, f'Redeemed for coupon {code}'))
         return jsonify({"status": "success", "code": code})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
 # ===== WALLET =====
-
-_wallet_backfill_done = set()
-
-def backfill_wallet_transactions(cursor, user_id):
-    """Rebuild ledger rows when balance exists but history was never logged."""
-    cursor.execute("SELECT COUNT(*) FROM Wallet_Transactions WHERE user_id = ?", (user_id,))
-    if cursor.fetchone()[0] > 0:
-        return
-    cursor.execute(
-        """
-        SELECT reservation_id, final_price, spot_id, status
-        FROM Reservations
-        WHERE user_id = ? AND final_price > 0
-        ORDER BY reservation_id ASC
-        """,
-        (user_id,),
-    )
-    for r in cursor.fetchall():
-        price = float(r[1])
-        spot = r[2]
-        status = r[3]
-        if status == 'cancelled':
-            cursor.execute(
-                "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'refund', ?)",
-                (user_id, price, f'Refund for cancelled reservation #{r[0]} (backfill)'),
-            )
-        elif status in ('reserved', 'active', 'completed'):
-            cursor.execute(
-                "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'book', ?)",
-                (user_id, price, f'Booking spot {spot} (backfill)'),
-            )
-    cursor.execute(
-        """
-        SELECT v.violation_id, v.fine_amount
-        FROM Violations v
-        JOIN Reservations r ON v.reservation_id = r.reservation_id
-        WHERE r.user_id = ? AND v.is_paid = 1
-        """,
-        (user_id,),
-    )
-    for v in cursor.fetchall():
-        cursor.execute(
-            "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'fine', ?)",
-            (user_id, float(v[1]), f'Violation #{v[0]} fine payment (backfill)'),
-        )
 
 @app.route('/api/user/<int:user_id>/wallet', methods=['GET'])
 def get_wallet(user_id):
@@ -649,11 +565,6 @@ def get_wallet(user_id):
         cursor.execute("SELECT wallet_balance FROM Users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         balance = float(row[0]) if row else 0
-
-        if user_id not in _wallet_backfill_done:
-            backfill_wallet_transactions(cursor, user_id)
-            _wallet_backfill_done.add(user_id)
-
         cursor.execute(
             "SELECT trans_id, amount, type, description, created_at FROM Wallet_Transactions WHERE user_id = ? ORDER BY created_at DESC",
             (user_id,)
@@ -667,7 +578,6 @@ def get_wallet(user_id):
                 "description": r[3],
                 "date": r[4].isoformat() if r[4] else ''
             })
-
         return jsonify({"balance": balance, "transactions": txs})
     finally:
         conn.close()
@@ -676,23 +586,15 @@ def get_wallet(user_id):
 def topup_wallet(user_id):
     data = request.json
     amount = data.get('amount', 0)
-
-    if amount <= 0:
-        return jsonify({"status": "error", "message": "Invalid amount"}), 400
-
+    if amount <= 0: return jsonify({"status": "error", "message": "Invalid amount"}), 400
     conn = get_db()
     try:
         cursor = conn.cursor()
         cursor.execute("UPDATE Users SET wallet_balance = wallet_balance + ? WHERE user_id = ?", (amount, user_id))
-        cursor.execute(
-            "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'add', ?)",
-            (user_id, amount, f'Added {amount} PKR via Digital Wallet')
-        )
+        cursor.execute("INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'add', ?)", (user_id, amount, f'Added {amount} PKR via Digital Wallet'))
         cursor.execute("SELECT wallet_balance FROM Users WHERE user_id = ?", (user_id,))
         new_balance = float(cursor.fetchone()[0])
         return jsonify({"status": "success", "newBalance": new_balance})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
@@ -703,10 +605,7 @@ def get_bookings(user_id):
     conn = get_db()
     try:
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT reservation_id, spot_id, start_time, end_time, status, final_price, points_earned FROM Reservations WHERE user_id = ? ORDER BY reservation_id DESC",
-            (user_id,)
-        )
+        cursor.execute("SELECT reservation_id, spot_id, start_time, end_time, status, final_price, points_earned FROM Reservations WHERE user_id = ? ORDER BY reservation_id DESC", (user_id,))
         bookings = []
         for r in cursor.fetchall():
             bookings.append({
@@ -726,58 +625,26 @@ def get_bookings(user_id):
 def cancel_booking(user_id):
     data = request.json
     reservation_id = data.get('reservationId')
-
     conn = get_db()
     try:
         cursor = conn.cursor()
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT final_price, points_earned FROM Reservations
             WHERE reservation_id = ? AND user_id = ?
               AND status IN ('reserved', 'active')
               AND GETUTCDATE() < DATEADD(minute, 10, start_time)
-            """,
-            (reservation_id, user_id)
-        )
+        """, (reservation_id, user_id))
         row = cursor.fetchone()
-        if not row:
-            cursor.execute(
-                "SELECT status FROM Reservations WHERE reservation_id = ? AND user_id = ?",
-                (reservation_id, user_id)
-            )
-            check = cursor.fetchone()
-            if not check:
-                return jsonify({"status": "error", "message": "Reservation not found"}), 404
-            if check[0] in ('cancelled', 'completed'):
-                return jsonify({"status": "error", "message": "This reservation cannot be cancelled."}), 400
-            return jsonify({
-                "status": "error",
-                "message": "Cancellation window closed. You can cancel before start or within 10 minutes after start time."
-            }), 400
-
+        if not row: return jsonify({"status": "error", "message": "Cancellation window closed."}), 400
         refund = float(row[0])
         points_earned = int(row[1]) if row[1] else 0
-
         cursor.execute("UPDATE Reservations SET status = 'cancelled' WHERE reservation_id = ?", (reservation_id,))
         cursor.execute("UPDATE Users SET wallet_balance = wallet_balance + ? WHERE user_id = ?", (refund, user_id))
-        cursor.execute(
-            "INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'refund', ?)",
-            (user_id, refund, f'Refund for cancelled reservation #{reservation_id}')
-        )
-
+        cursor.execute("INSERT INTO Wallet_Transactions (user_id, amount, type, description) VALUES (?, ?, 'refund', ?)", (user_id, refund, f'Refund for cancelled reservation #{reservation_id}'))
         if points_earned > 0:
-            cursor.execute(
-                "UPDATE Loyalty_Points SET points = CASE WHEN points >= ? THEN points - ? ELSE 0 END WHERE user_id = ?",
-                (points_earned, points_earned, user_id)
-            )
-            cursor.execute(
-                "INSERT INTO Transactions (user_id, points_change, reason) VALUES (?, ?, ?)",
-                (user_id, -points_earned, f'Reversed for cancelled reservation #{reservation_id}')
-            )
-
+            cursor.execute("UPDATE Loyalty_Points SET points = CASE WHEN points >= ? THEN points - ? ELSE 0 END WHERE user_id = ?", (points_earned, points_earned, user_id))
+            cursor.execute("INSERT INTO Transactions (user_id, points_change, reason) VALUES (?, ?, ?)", (user_id, -points_earned, f'Reversed for cancelled reservation #{reservation_id}'))
         return jsonify({"status": "success", "refund": refund})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
@@ -787,14 +654,11 @@ def cancel_booking(user_id):
 def check_in():
     data = request.json
     res_id = data.get('reservationId')
-    
     conn = get_db()
     try:
         cursor = conn.cursor()
         cursor.execute("UPDATE Reservations SET status = 'active' WHERE reservation_id = ?", (res_id,))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
@@ -802,52 +666,19 @@ def check_in():
 def check_out():
     data = request.json
     res_id = data.get('reservationId')
-    
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # Get reservation details
         cursor.execute("SELECT end_time, user_id, status FROM Reservations WHERE reservation_id = ?", (res_id,))
         res = cursor.fetchone()
-        if not res:
-            return jsonify({"status": "error", "message": "Reservation not found"}), 404
-            
-        end_time = res[0]
-        status = res[2]
-
-        if status in ('completed', 'cancelled'):
-            return jsonify({"status": "success", "message": "Already checked out"})
-
-        if status == 'reserved':
-            cursor.execute(
-                "UPDATE Reservations SET status = 'completed' WHERE reservation_id = ? AND status = 'reserved'",
-                (res_id,)
-            )
-            return jsonify({"status": "success", "message": "Reservation closed without parking session."})
-
-        if status != 'active':
-            return jsonify({"status": "error", "message": "Only active parking sessions can be checked out."}), 400
-
-        now = datetime.utcnow()
-        cursor.execute(
-            "UPDATE Reservations SET status = 'completed' WHERE reservation_id = ? AND status = 'active'",
-            (res_id,)
-        )
-        if cursor.rowcount == 0:
-            return jsonify({"status": "success", "message": "Already checked out"})
-
-        fine = overstay_fine_amount(end_time, now)
-        if fine > 0:
-            cursor.execute("SELECT COUNT(*) FROM Violations WHERE reservation_id = ?", (res_id,))
-            if cursor.fetchone()[0] == 0:
-                cursor.execute(
-                    "INSERT INTO Violations (reservation_id, fine_amount, is_paid) VALUES (?, ?, 0)",
-                    (res_id, fine)
-                )
-
+        if not res: return jsonify({"status": "error", "message": "Not found"}), 404
+        end_time, user_id, status = res[0], res[1], res[2]
+        if status in ('completed', 'cancelled'): return jsonify({"status": "success"})
+        cursor.execute("UPDATE Reservations SET status = 'completed' WHERE reservation_id = ? AND status = 'active'", (res_id,))
+        if cursor.rowcount > 0:
+            fine = overstay_fine_amount(end_time)
+            if fine > 0: cursor.execute("INSERT INTO Violations (reservation_id, fine_amount, is_paid) VALUES (?, ?, 0)", (res_id, fine))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
@@ -858,520 +689,185 @@ def get_leaderboard():
     conn = get_db()
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT TOP 10 u.user_id, u.name, lp.points, lp.lifetime_points
-            FROM Users u
-            JOIN Loyalty_Points lp ON u.user_id = lp.user_id
-            WHERE u.role != 'admin'
-            ORDER BY lp.points DESC
-        """)
-        users = []
-        for r in cursor.fetchall():
-            users.append({
-                "id": r[0],
-                "name": r[1],
-                "points": r[2],
-                "lifetimePoints": r[3]
-            })
-
-        # Get total count (excluding admins)
+        cursor.execute("SELECT TOP 10 u.user_id, u.name, lp.points, lp.lifetime_points FROM Users u JOIN Loyalty_Points lp ON u.user_id = lp.user_id WHERE u.role != 'admin' ORDER BY lp.points DESC")
+        users = [{"id": r[0], "name": r[1], "points": r[2], "lifetimePoints": r[3]} for r in cursor.fetchall()]
         cursor.execute("SELECT COUNT(*) FROM Users WHERE role != 'admin'")
-        total = cursor.fetchone()[0]
-
-        return jsonify({"leaderboard": users, "totalUsers": total})
+        return jsonify({"leaderboard": users, "totalUsers": cursor.fetchone()[0]})
     finally:
         conn.close()
 
 # --- ROLES HELPER ---
 def is_admin(user_id):
-    if not user_id:
-        return False
+    if not user_id: return False
     conn = get_db()
     try:
         cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT role FROM Users WHERE user_id = ?", (user_id,))
-        except:
-            return False # Role column might not exist yet
+        cursor.execute("SELECT role FROM Users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         return row and row[0] == 'admin'
-    except:
-        return False
-    finally:
-        conn.close()
+    except: return False
+    finally: conn.close()
 
 # ===== ADMIN =====
 
 @app.route('/api/admin/stats', methods=['GET'])
 def admin_stats():
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized. Admin access required."}), 403
-
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
-        from datetime import datetime, timezone
-        time_now = datetime.now(timezone.utc).replace(tzinfo=None)
-
-        # Total revenue
         cursor.execute("SELECT ISNULL(SUM(final_price), 0) FROM Reservations WHERE status != 'cancelled'")
-        total_revenue = float(cursor.fetchone()[0])
-
-        # Total users
+        rev = float(cursor.fetchone()[0])
         cursor.execute("SELECT COUNT(*) FROM Users")
-        total_users = cursor.fetchone()[0]
-
-        # Active bookings (actually currently parked/occupying a spot)
+        users = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'active' AND end_time > GETUTCDATE()")
-        active_bookings = cursor.fetchone()[0]
-
-        # Completed bookings
-        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'completed'")
-        completed_bookings = cursor.fetchone()[0]
-
-        # Cancelled bookings
-        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE status = 'cancelled'")
-        cancelled_bookings = cursor.fetchone()[0]
-
-        # Total bookings
-        cursor.execute("SELECT COUNT(*) FROM Reservations")
-        total_bookings = cursor.fetchone()[0]
-
-        # Total violations
+        active = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM Violations")
-        total_violations = cursor.fetchone()[0]
+        violations_count = cursor.fetchone()[0]
 
-        # Unpaid violations
-        cursor.execute("SELECT COUNT(*) FROM Violations WHERE is_paid = 0")
-        unpaid_violations = cursor.fetchone()[0]
+        cursor.execute("SELECT CAST(created_at AS DATE), SUM(final_price) FROM Reservations WHERE status != 'cancelled' AND created_at >= DATEADD(day, -7, GETUTCDATE()) GROUP BY CAST(created_at AS DATE) ORDER BY 1")
+        daily_rev = [{"day": str(r[0]), "revenue": float(r[1])} for r in cursor.fetchall()]
 
-        # Revenue by day (last 7 days)
-        cursor.execute("""
-            SELECT CAST(created_at AS DATE) as day, ISNULL(SUM(final_price), 0) as revenue
-            FROM Reservations
-            WHERE status != 'cancelled' AND created_at >= DATEADD(day, -7, GETUTCDATE())
-            GROUP BY CAST(created_at AS DATE)
-            ORDER BY day
-        """)
-        daily_revenue = []
-        for r in cursor.fetchall():
-            daily_revenue.append({
-                "day": r[0].isoformat() if r[0] else '',
-                "revenue": float(r[1])
-            })
+        cursor.execute("SELECT v.violation_id, u.name, v.fine_amount, v.is_paid, v.created_at FROM Violations v JOIN Reservations r ON v.reservation_id = r.reservation_id JOIN Users u ON r.user_id = u.user_id ORDER BY v.created_at DESC")
+        v_list = [{"id": r[0], "userName": r[1], "fineAmount": float(r[2]), "isPaid": bool(r[3]), "createdAt": str(r[4])} for r in cursor.fetchall()]
 
+        cursor.execute("SELECT TOP 10 r.reservation_id, u.name, r.spot_id, r.status, r.final_price FROM Reservations r JOIN Users u ON r.user_id = u.user_id ORDER BY r.created_at DESC")
+        recent = [{"id": r[0], "userName": r[1], "spotId": r[2], "status": r[3], "finalPrice": float(r[4])} for r in cursor.fetchall()]
 
-
-        # Data Fix: Ensure A12 is in Zone A
-        cursor.execute("UPDATE Parking_Spots SET zone_id = 'A' WHERE spot_id = 'A12' AND zone_id = 'C'")
-        
-        # Zone occupancy - Dynamic Zone Detection
-        zone_occupancy = []
-        cursor.execute("SELECT DISTINCT zone_id FROM Parking_Spots")
-        found_zones = [str(r[0]).strip() for r in cursor.fetchall()]
-        
-        running_active_count = 0
-        for zone_id in sorted(list(set(found_zones))):
-            # Count ALL spots in zone 
-            cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ?", (zone_id,))
-            total_in_zone = cursor.fetchone()[0]
-            
-            # Check if zone is online (count only naturally active spots)
-            cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
-            online_spots = cursor.fetchone()[0]
-            
-            # Count only ACTIVE (occupied) spots - time restricted
-            cursor.execute("""
-                SELECT COUNT(DISTINCT r.spot_id) FROM Reservations r
-                JOIN Parking_Spots s ON r.spot_id = s.spot_id
-                WHERE s.zone_id = ? AND r.status = 'active' AND r.end_time > GETUTCDATE()
-            """, (zone_id,))
-            occupied_in_zone = cursor.fetchone()[0]
-            running_active_count += occupied_in_zone
-            
-            zone_occupancy.append({
-                "zone": zone_id,
-                "total": total_in_zone,
-                "online": online_spots,
-                "occupied": occupied_in_zone,
-                "available": max(0, online_spots - occupied_in_zone)
-            })
-
-        # Override active_bookings with the actual sum from spots to ensure 100% UI consistency
-        active_bookings = running_active_count
-
-        # Dynamic pricing state per zone
-        pricing_state = []
-        for zone_id in sorted(found_zones):
-            cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone_id,))
-            total_spots = cursor.fetchone()[0]
-            cursor.execute("""
-                SELECT COUNT(DISTINCT s.spot_id) FROM Reservations r
-                JOIN Parking_Spots s ON r.spot_id = s.spot_id
-                WHERE s.zone_id = ? AND r.status = 'active' AND r.end_time > GETUTCDATE()
-            """, (zone_id,))
-            occ = cursor.fetchone()[0]
-            occupancy_pct = (occ / total_spots * 100) if total_spots > 0 else 0
-            multiplier = 1.2 if occupancy_pct > 80 else 1.0
-            pricing_state.append({
-                "zone": zone_id,
-                "occupancyPercent": round(occupancy_pct, 1),
-                "multiplier": multiplier,
-                "surgeActive": multiplier > 1.0
-            })
-
-        # Bookings per day (last 7 days)
-        cursor.execute("""
-            SELECT CAST(created_at AS DATE) as day, COUNT(*) as cnt
-            FROM Reservations
-            WHERE created_at >= DATEADD(day, -7, GETUTCDATE())
-            GROUP BY CAST(created_at AS DATE)
-            ORDER BY day
-        """)
-        daily_bookings = []
-        for r in cursor.fetchall():
-            daily_bookings.append({
-                "day": r[0].isoformat() if r[0] else '',
-                "count": r[1]
-            })
-
-        # All violations for admin table
-        cursor.execute("""
-            SELECT v.violation_id, r.user_id, u.name, v.reservation_id, v.fine_amount, v.is_paid, v.created_at
-            FROM Violations v
-            JOIN Reservations r ON v.reservation_id = r.reservation_id
-            JOIN Users u ON r.user_id = u.user_id
-            ORDER BY v.created_at DESC
-        """)
-        violations = []
-        for r in cursor.fetchall():
-            violations.append({
-                "id": r[0],
-                "userId": r[1],
-                "userName": r[2],
-                "reservationId": r[3],
-                "fineAmount": float(r[4]),
-                "isPaid": bool(r[5]),
-                "createdAt": (r[6].isoformat() + 'Z') if r[6] else ''
-            })
-
-        # Recent reservations for admin
-        cursor.execute("""
-            SELECT TOP 10 r.reservation_id, u.name, r.spot_id, r.start_time, r.end_time, r.status, r.final_price, r.created_at
-            FROM Reservations r JOIN Users u ON r.user_id = u.user_id
-            ORDER BY r.created_at DESC
-        """)
-        recent_bookings = []
-        for r in cursor.fetchall():
-            res_status = r[5]
-            # Dynamic completion check
-            if res_status == 'active' and r[4] and r[4] < time_now:
-                res_status = 'completed'
-                
-            recent_bookings.append({
-                "id": r[0],
-                "userName": r[1],
-                "spotId": r[2],
-                "startTime": (r[3].isoformat() + 'Z') if r[3] else '',
-                "endTime": (r[4].isoformat() + 'Z') if r[4] else '',
-                "status": res_status,
-                "finalPrice": float(r[6]) if r[6] else 0,
-                "createdAt": (r[7].isoformat() + 'Z') if r[7] else ''
-            })
-
-        return jsonify({
-            "totalRevenue": total_revenue,
-            "totalUsers": total_users,
-            "activeBookings": active_bookings,
-            "completedBookings": completed_bookings,
-            "cancelledBookings": cancelled_bookings,
-            "totalBookings": total_bookings,
-            "totalViolations": total_violations,
-            "unpaidViolations": unpaid_violations,
-            "dailyRevenue": daily_revenue,
-            "dailyBookings": daily_bookings,
-            "zoneOccupancy": zone_occupancy,
-            "pricingState": pricing_state,
-            "violations": violations,
-            "recentBookings": recent_bookings
-        })
+        return jsonify({"totalRevenue": rev, "totalUsers": users, "activeBookings": active, "totalViolations": violations_count, "dailyRevenue": daily_rev, "violations": v_list, "recentBookings": recent})
     finally:
         conn.close()
 
 @app.route('/api/admin/users', methods=['GET'])
 def admin_users():
-    """List all registered users from the database."""
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized. Admin access required."}), 403
-
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                SELECT u.user_id, u.name, u.email, u.phone, u.vehicle_plate, u.wallet_balance, u.referral_code, u.role, u.created_at,
-                       ISNULL(lp.points, 0) as points, ISNULL(lp.lifetime_points, 0) as lifetime_points,
-                       (SELECT COUNT(*) FROM Reservations WHERE user_id = u.user_id) as total_bookings,
-                       u.vehicle_type_id
-                FROM Users u
-                LEFT JOIN Loyalty_Points lp ON u.user_id = lp.user_id
-                ORDER BY u.created_at DESC
-            """)
-        except:
-            cursor.execute("""
-                SELECT u.user_id, u.name, u.email, u.phone, u.vehicle_plate, u.wallet_balance, u.referral_code, 'user' as role, u.created_at,
-                       ISNULL(lp.points, 0) as points, ISNULL(lp.lifetime_points, 0) as lifetime_points,
-                       (SELECT COUNT(*) FROM Reservations WHERE user_id = u.user_id) as total_bookings,
-                       2 as vehicle_type_id
-                FROM Users u
-                LEFT JOIN Loyalty_Points lp ON u.user_id = lp.user_id
-                ORDER BY u.created_at DESC
-            """)
-        users = []
-        for r in cursor.fetchall():
-            users.append({
-                "id": r[0],
-                "name": r[1],
-                "email": r[2],
-                "phone": r[3],
-                "vehiclePlate": r[4],
-                "walletBalance": float(r[5]) if r[5] else 0,
-                "referralCode": r[6],
-                "role": r[7] if r[7] else 'user',
-                "createdAt": (r[8].isoformat() + 'Z') if r[8] else '',
-                "points": r[9],
-                "lifetimePoints": r[10],
-                "totalBookings": r[11],
-                "vehicleTypeId": r[12]
-            })
-        return jsonify({"users": users, "totalCount": len(users)})
+        cursor.execute("SELECT u.user_id, u.name, u.email, u.phone, u.vehicle_plate, u.wallet_balance, u.role, ISNULL(lp.points, 0) FROM Users u LEFT JOIN Loyalty_Points lp ON u.user_id = lp.user_id ORDER BY u.created_at DESC")
+        users = [{"id": r[0], "name": r[1], "email": r[2], "phone": r[3], "vehiclePlate": r[4], "walletBalance": float(r[5]), "role": r[6], "points": r[7]} for r in cursor.fetchall()]
+        return jsonify({"users": users})
     finally:
         conn.close()
 
 @app.route('/api/admin/users/<int:user_id>', methods=['PATCH'])
 def update_user_admin(user_id):
-    import re
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     data = request.json
-    name = data.get('name')
-    phone = data.get('phone')
-    plate = data.get('vehiclePlate')
-    role = data.get('role')
-    points = data.get('points')
-    wallet = data.get('walletBalance')
-    v_type = data.get('vehicleTypeId') # New field
-
-    if not re.match(r'^\d{11}$', str(phone)):
-        return jsonify({"status": "error", "message": "Phone number must be exactly 11 digits."}), 400
-    if not re.match(r'^[A-Za-z]{3}-\d{3}$', str(plate)):
-        return jsonify({"status": "error", "message": "Vehicle plate must be in format ABC-123."}), 400
-
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # Update User fields
-        cursor.execute("""
-            UPDATE Users SET name = ?, phone = ?, vehicle_plate = ?, role = ?, wallet_balance = ?, vehicle_type_id = ?
-            WHERE user_id = ?
-        """, (name, phone, plate, role, wallet, v_type, user_id))
-        
-        # Update points if provided
-        if points is not None:
-            cursor.execute("UPDATE Loyalty_Points SET points = ? WHERE user_id = ?", (points, user_id))
-            
+        cursor.execute("UPDATE Users SET name=?, phone=?, vehicle_plate=?, role=?, wallet_balance=? WHERE user_id=?", (data.get('name'), data.get('phone'), data.get('vehiclePlate'), data.get('role'), data.get('walletBalance'), user_id))
+        if 'points' in data: cursor.execute("UPDATE Loyalty_Points SET points=? WHERE user_id=?", (data.get('points'), user_id))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
 @app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
 def delete_user_admin(user_id):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # 1. Delete Violations linked to user's reservations
         cursor.execute("DELETE FROM Violations WHERE reservation_id IN (SELECT reservation_id FROM Reservations WHERE user_id = ?)", (user_id,))
-        # 2. Delete Reservations
         cursor.execute("DELETE FROM Reservations WHERE user_id = ?", (user_id,))
-        # 3. Delete related logs
         cursor.execute("DELETE FROM Loyalty_Points WHERE user_id = ?", (user_id,))
         cursor.execute("DELETE FROM Transactions WHERE user_id = ?", (user_id,))
         cursor.execute("DELETE FROM Wallet_Transactions WHERE user_id = ?", (user_id,))
         cursor.execute("DELETE FROM Discounts WHERE user_id = ?", (user_id,))
-        # 4. Delete User
         cursor.execute("DELETE FROM Users WHERE user_id = ?", (user_id,))
-        
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
 @app.route('/api/admin/spots', methods=['POST'])
 def add_spot():
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     data = request.json
-    spot_id = data.get('spotId') # e.g. "A11"
-    zone_id = data.get('zoneId') # e.g. "A"
-    
     conn = get_db()
     try:
         cursor = conn.cursor()
-        
-        # Enforce max 20 spots per zone constraint
-        cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ?", (zone_id,))
-        count = cursor.fetchone()[0]
-        if count >= 20:
-            return jsonify({"status": "error", "message": f"Maximum capacity reached. Zone {zone_id} cannot exceed 20 spots."}), 400
-            
-        cursor.execute("INSERT INTO Parking_Spots (spot_id, zone_id, is_active) VALUES (?, ?, 1)", (spot_id, zone_id))
+        cursor.execute("INSERT INTO Parking_Spots (spot_id, zone_id, is_active) VALUES (?, ?, 1)", (data.get('spotId'), data.get('zoneId')))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
 @app.route('/api/admin/spots/<spot_id>', methods=['DELETE'])
 def delete_spot(spot_id):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # Check if spot has ever been used (reservations)
-        cursor.execute("SELECT COUNT(*) FROM Reservations WHERE spot_id = ?", (spot_id,))
-        if cursor.fetchone()[0] > 0:
-            # Safer to de-activate rather than delete if history exists
-            cursor.execute("UPDATE Parking_Spots SET is_active = 0 WHERE spot_id = ?", (spot_id,))
-            return jsonify({"status": "success", "message": "Spot had history, so it was de-activated instead of deleted."})
-        
         cursor.execute("DELETE FROM Parking_Spots WHERE spot_id = ?", (spot_id,))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
 @app.route('/api/admin/spots/<spot_id>/status', methods=['PATCH'])
 def toggle_spot_status(spot_id):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
-    data = request.json
-    active = 1 if data.get('active') else 0
-    
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    active = 1 if request.json.get('active') else 0
     conn = get_db()
     try:
         cursor = conn.cursor()
-        
-        # RESTRICTION: Check for active bookings
-        if not active:
-            cursor.execute("""
-                SELECT COUNT(*) FROM Reservations 
-                WHERE spot_id = ? AND status = 'active' AND end_time > GETUTCDATE()
-            """, (spot_id,))
-            count = cursor.fetchone()[0]
-            if count > 0:
-                return jsonify({"status": "error", "message": f"Cannot take spot {spot_id} offline. It has {count} active reservation(s)."}), 400
-
         cursor.execute("UPDATE Parking_Spots SET is_active = ? WHERE spot_id = ?", (active, spot_id))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
 @app.route('/api/admin/zones/<zone_id>/status', methods=['PATCH'])
 def toggle_zone_status(zone_id):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
-    data = request.json
-    active = 1 if data.get('active') else 0
-    
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    active = 1 if request.json.get('active') else 0
     conn = get_db()
     try:
         cursor = conn.cursor()
-        
-        # RESTRICTION: Check for active bookings in entire zone
-        if not active:
-            cursor.execute("""
-                SELECT spot_id FROM Reservations 
-                WHERE spot_id IN (SELECT spot_id FROM Parking_Spots WHERE zone_id = ?)
-                AND status = 'active' AND end_time > GETUTCDATE()
-            """, (zone_id,))
-            active_spots = [str(r[0]).strip() for r in cursor.fetchall()]
-            if active_spots:
-                return jsonify({"status": "error", "message": f"Cannot deactivate Zone {zone_id}. The following spots are still occupied: {', '.join(active_spots)}"}), 400
-
         cursor.execute("UPDATE Parking_Spots SET is_active = ? WHERE zone_id = ?", (active, zone_id))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+    finally:
+        conn.close()
+
 @app.route('/api/admin/bookings/<int:res_id>/force-complete', methods=['POST'])
 def force_complete_booking(res_id):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
         cursor.execute("UPDATE Reservations SET status = 'completed' WHERE reservation_id = ?", (res_id,))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
-
-# ===== ADMIN VIOLATIONS =====
 
 @app.route('/api/admin/violations/<int:v_id>', methods=['DELETE'])
 def delete_violation(v_id):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM Violations WHERE violation_id = ?", (v_id,))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
 @app.route('/api/admin/violations/<int:v_id>/pay', methods=['PATCH'])
 def mark_violation_paid(v_id):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-    
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
         cursor.execute("UPDATE Violations SET is_paid = 1 WHERE violation_id = ?", (v_id,))
         return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
 
@@ -1380,96 +876,54 @@ def mark_violation_paid(v_id):
 @app.route('/api/reports/<report_type>', methods=['GET'])
 def generate_report(report_type):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized. Admin access required."}), 403
-
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
         output = io.StringIO()
         writer = csv.writer(output)
-
         if report_type == 'revenue':
-            writer.writerow(['Date', 'Total Revenue', 'Bookings Count'])
-            cursor.execute("""
-                SELECT CAST(created_at AS DATE), SUM(final_price), COUNT(*)
-                FROM Reservations WHERE status != 'cancelled'
-                GROUP BY CAST(created_at AS DATE) ORDER BY 1 DESC
-            """)
-            for r in cursor.fetchall():
-                writer.writerow([str(r[0]), float(r[1]), r[2]])
-
+            writer.writerow(['Date', 'Revenue'])
+            cursor.execute("SELECT CAST(created_at AS DATE), SUM(final_price) FROM Reservations WHERE status != 'cancelled' GROUP BY CAST(created_at AS DATE) ORDER BY 1 DESC")
+            for r in cursor.fetchall(): writer.writerow([str(r[0]), float(r[1])])
         elif report_type == 'customers':
-            writer.writerow(['User ID', 'Name', 'Email', 'Total Spent', 'Bookings'])
-            cursor.execute("""
-                SELECT u.user_id, u.name, u.email,
-                    ISNULL(SUM(r.final_price), 0), COUNT(r.reservation_id)
-                FROM Users u LEFT JOIN Reservations r ON u.user_id = r.user_id AND r.status != 'cancelled'
-                GROUP BY u.user_id, u.name, u.email
-                ORDER BY 4 DESC
-            """)
-            for r in cursor.fetchall():
-                writer.writerow([r[0], r[1], r[2], float(r[3]), r[4]])
-
+            writer.writerow(['User ID', 'Name', 'Total Spent'])
+            cursor.execute("SELECT u.user_id, u.name, SUM(r.final_price) FROM Users u JOIN Reservations r ON u.user_id = r.user_id WHERE r.status != 'cancelled' GROUP BY u.user_id, u.name ORDER BY 3 DESC")
+            for r in cursor.fetchall(): writer.writerow([r[0], r[1], float(r[2])])
         elif report_type == 'leaderboard':
-            writer.writerow(['Rank', 'User ID', 'Name', 'Points', 'Lifetime Points'])
-            cursor.execute("""
-                SELECT u.user_id, u.name, lp.points, lp.lifetime_points
-                FROM Users u JOIN Loyalty_Points lp ON u.user_id = lp.user_id
-                ORDER BY lp.points DESC
-            """)
-            for i, r in enumerate(cursor.fetchall(), 1):
-                writer.writerow([i, r[0], r[1], r[2], r[3]])
-
+            writer.writerow(['Rank', 'Name', 'Points'])
+            cursor.execute("SELECT u.name, lp.points FROM Users u JOIN Loyalty_Points lp ON u.user_id = lp.user_id ORDER BY lp.points DESC")
+            for i, r in enumerate(cursor.fetchall(), 1): writer.writerow([i, r[0], r[1]])
         elif report_type == 'violations':
-            writer.writerow(['Violation ID', 'User ID', 'Reservation ID', 'Fine Amount', 'Status', 'Date'])
-            cursor.execute("""
-                SELECT v.violation_id, r.user_id, v.reservation_id, v.fine_amount,
-                    CASE WHEN v.is_paid = 1 THEN 'Paid' ELSE 'Unpaid' END, v.created_at
-                FROM Violations v JOIN Reservations r ON v.reservation_id = r.reservation_id
-                ORDER BY v.created_at DESC
-            """)
-            for r in cursor.fetchall():
-                writer.writerow([r[0], r[1], r[2], float(r[3]), r[4], str(r[5])])
-        else:
-            return jsonify({"status": "error", "message": "Unknown report type"}), 400
+            writer.writerow(['ID', 'Fine', 'Status'])
+            cursor.execute("SELECT violation_id, fine_amount, is_paid FROM Violations")
+            for r in cursor.fetchall(): writer.writerow([r[0], float(r[1]), 'Paid' if r[2] else 'Unpaid'])
+        return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={report_type}.csv'})
+    finally: conn.close()
 
-        csv_content = output.getvalue()
-        return Response(
-            csv_content,
-            mimetype='text/csv',
-            headers={'Content-Disposition': f'attachment; filename={report_type}_report.csv'}
-        )
-    finally:
-        conn.close()
-
-# --- PROFESSIONAL PDF REPORTS ---
+# --- PDF ENGINE ---
 
 class PDF_Report(FPDF):
     def header(self):
-        # Header background
-        self.set_fill_color(30, 41, 59) # Slate 800
+        self.set_fill_color(30, 41, 59)
         self.rect(0, 0, 210, 35, 'F')
-        # Title
         self.set_font('helvetica', 'B', 16)
         self.set_text_color(255, 255, 255)
         self.cell(0, 10, 'SMART PARKING SYSTEM', 0, 1, 'C')
         self.set_font('helvetica', '', 11)
-        self.cell(0, 5, 'Automated Analytics & Infrastructure Report', 0, 1, 'C')
+        self.cell(0, 5, 'Professional Analytics & Infrastructure Audit', 0, 1, 'C')
         self.ln(10)
 
     def footer(self):
         self.set_y(-15)
         self.set_font('helvetica', 'I', 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f'Generated by Smart Parking Server | Page {self.page_no()}', 0, 0, 'C')
+        self.cell(0, 10, f'Final Audit Report | Page {self.page_no()}', 0, 0, 'C')
 
 @app.route('/api/reports/pdf/<report_type>', methods=['GET'])
 def generate_pdf_report(report_type):
     sender_id = request.args.get('sender_id')
-    if not is_admin(sender_id):
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-
+    if not is_admin(sender_id): return jsonify({"status": "error", "message": "Unauthorized"}), 403
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -1482,126 +936,58 @@ def generate_pdf_report(report_type):
             pdf.set_font('helvetica', 'B', 14)
             pdf.cell(0, 10, "Revenue Analysis Hub", 0, 1, 'L')
             pdf.ln(5)
-
-            cursor.execute("""
-                SELECT CAST(created_at AS DATE), SUM(final_price), COUNT(*)
-                FROM Reservations WHERE status != 'cancelled'
-                GROUP BY CAST(created_at AS DATE) ORDER BY 1 DESC
-            """)
+            cursor.execute("SELECT CAST(created_at AS DATE), SUM(final_price), COUNT(*) FROM Reservations WHERE status != 'cancelled' GROUP BY CAST(created_at AS DATE) ORDER BY 1 DESC")
             data = cursor.fetchall()
-
-            # Chart Generation
-            dates = [str(r[0]) for r in reversed(data[:7])]  # Last 7 days
-            revs = [float(r[1]) for r in reversed(data[:7])]
-            
-            plt.figure(figsize=(10, 4))
-            plt.plot(dates, revs, marker='o', color='#3b82f6', linewidth=2)
-            plt.fill_between(dates, revs, color='#3b82f6', alpha=0.1)
-            plt.title('Daily Revenue Trend (Last 7 Days)')
-            plt.ylabel('PKR')
-            plt.grid(axis='y', linestyle='--', alpha=0.7)
-            
-            chart_path = "temp_revenue_chart.png"
-            plt.savefig(chart_path, bbox_inches='tight')
-            plt.close()
-
-            pdf.image(chart_path, x=10, w=190)
-            pdf.ln(10)
-
-            # Table Header
-            pdf.set_fill_color(241, 245, 249)
-            pdf.set_font('helvetica', 'B', 10)
-            pdf.cell(60, 8, 'Date', 1, 0, 'C', 1)
-            pdf.cell(60, 8, 'Total Revenue (PKR)', 1, 0, 'C', 1)
-            pdf.cell(60, 8, 'Bookings', 1, 1, 'C', 1)
-
+            if data:
+                dates = [str(r[0]) for r in reversed(data[:7])]
+                revs = [float(r[1]) for r in reversed(data[:7])]
+                plt.figure(figsize=(10, 4))
+                plt.plot(dates, revs, marker='o', color='#3b82f6', linewidth=2)
+                plt.fill_between(dates, revs, color='#3b82f6', alpha=0.1)
+                plt.title('Daily Revenue Trend (Last 7 Days)')
+                plt.savefig("temp_rev.png", bbox_inches='tight')
+                plt.close()
+                pdf.image("temp_rev.png", x=10, w=190)
+                pdf.ln(10)
+            pdf.set_fill_color(241, 245, 249); pdf.set_font('helvetica', 'B', 10)
+            pdf.cell(60, 8, 'Date', 1, 0, 'C', 1); pdf.cell(60, 8, 'Revenue (PKR)', 1, 0, 'C', 1); pdf.cell(60, 8, 'Bookings', 1, 1, 'C', 1)
             pdf.set_font('helvetica', '', 10)
             for r in data:
-                pdf.cell(60, 8, str(r[0]), 1, 0, 'C')
-                pdf.cell(60, 8, f"{float(r[1]):,.2f}", 1, 0, 'C')
-                pdf.cell(60, 8, str(r[2]), 1, 1, 'C')
+                pdf.cell(60, 8, str(r[0]), 1, 0, 'C'); pdf.cell(60, 8, f"{float(r[1]):,.2f}", 1, 0, 'C'); pdf.cell(60, 8, str(r[2]), 1, 1, 'C')
 
         elif report_type == 'customers':
-            pdf.set_font('helvetica', 'B', 14)
-            pdf.cell(0, 10, "Customer Spending & Engagement", 0, 1, 'L')
-            pdf.ln(5)
-
-            cursor.execute("""
-                SELECT TOP 15 u.user_id, u.name, u.email,
-                    ISNULL(SUM(r.final_price), 0), COUNT(r.reservation_id)
-                FROM Users u LEFT JOIN Reservations r ON u.user_id = r.user_id AND r.status != 'cancelled'
-                GROUP BY u.user_id, u.name, u.email ORDER BY 4 DESC
-            """)
+            pdf.set_font('helvetica', 'B', 14); pdf.cell(0, 10, "Customer Engagement", 0, 1, 'L'); pdf.ln(5)
+            cursor.execute("SELECT TOP 15 u.name, u.email, SUM(r.final_price), COUNT(r.reservation_id) FROM Users u JOIN Reservations r ON u.user_id = r.user_id WHERE r.status != 'cancelled' GROUP BY u.name, u.email ORDER BY 3 DESC")
             data = cursor.fetchall()
-
-            # Table
-            pdf.set_fill_color(241, 245, 249)
-            pdf.set_font('helvetica', 'B', 10)
-            pdf.cell(20, 8, 'ID', 1, 0, 'C', 1)
-            pdf.cell(50, 8, 'Name', 1, 0, 'C', 1)
-            pdf.cell(50, 8, 'Email', 1, 0, 'C', 1)
-            pdf.cell(40, 8, 'Total Spent', 1, 0, 'C', 1)
-            pdf.cell(30, 8, 'Bookings', 1, 1, 'C', 1)
-
+            pdf.set_fill_color(241, 245, 249); pdf.set_font('helvetica', 'B', 10)
+            pdf.cell(60, 8, 'Name', 1, 0, 'C', 1); pdf.cell(60, 8, 'Email', 1, 0, 'C', 1); pdf.cell(40, 8, 'Spent', 1, 0, 'C', 1); pdf.cell(30, 8, 'Bookings', 1, 1, 'C', 1)
             pdf.set_font('helvetica', '', 9)
             for r in data:
-                pdf.cell(20, 8, str(r[0]), 1, 0, 'C')
-                pdf.cell(50, 8, r[1][:25], 1, 0, 'L')
-                pdf.cell(50, 8, r[2][:25], 1, 0, 'L')
-                pdf.cell(40, 8, f"{float(r[3]):,.2f} PKR", 1, 0, 'R')
-                pdf.cell(30, 8, str(r[4]), 1, 1, 'C')
+                pdf.cell(60, 8, str(r[0])[:25], 1, 0, 'L'); pdf.cell(60, 8, str(r[1])[:25], 1, 0, 'L'); pdf.cell(40, 8, f"{float(r[2]):,.0f} PKR", 1, 0, 'R'); pdf.cell(30, 8, str(r[3]), 1, 1, 'C')
 
         elif report_type == 'violations':
-            pdf.set_font('helvetica', 'B', 14)
-            pdf.cell(0, 10, "Zonal Violation Audit", 0, 1, 'L')
-            pdf.ln(5)
-
-            cursor.execute("""
-                SELECT TOP 20 v.violation_id, r.user_id, v.fine_amount,
-                    CASE WHEN v.is_paid = 1 THEN 'PAID' ELSE 'UNPAID' END, v.created_at
-                FROM Violations v JOIN Reservations r ON v.reservation_id = r.reservation_id
-                ORDER BY v.created_at DESC
-            """)
+            pdf.set_font('helvetica', 'B', 14); pdf.cell(0, 10, "Zonal Violation Audit", 0, 1, 'L'); pdf.ln(5)
+            cursor.execute("SELECT TOP 20 v.violation_id, r.user_id, v.fine_amount, CASE WHEN v.is_paid = 1 THEN 'PAID' ELSE 'UNPAID' END FROM Violations v JOIN Reservations r ON v.reservation_id = r.reservation_id ORDER BY v.created_at DESC")
             data = cursor.fetchall()
-
-            pdf.set_fill_color(241, 245, 249)
-            pdf.set_font('helvetica', 'B', 10)
-            pdf.cell(30, 8, 'Violation ID', 1, 0, 'C', 1)
-            pdf.cell(30, 8, 'User ID', 1, 0, 'C', 1)
-            pdf.cell(40, 8, 'Fine Amount', 1, 0, 'C', 1)
-            pdf.cell(30, 8, 'Status', 1, 0, 'C', 1)
-            pdf.cell(60, 8, 'Date Issued', 1, 1, 'C', 1)
-
+            pdf.set_fill_color(241, 245, 249); pdf.set_font('helvetica', 'B', 10)
+            pdf.cell(40, 8, 'ID', 1, 0, 'C', 1); pdf.cell(40, 8, 'User ID', 1, 0, 'C', 1); pdf.cell(60, 8, 'Fine', 1, 0, 'C', 1); pdf.cell(50, 8, 'Status', 1, 1, 'C', 1)
             pdf.set_font('helvetica', '', 10)
             for r in data:
-                pdf.cell(30, 8, str(r[0]), 1, 0, 'C')
-                pdf.cell(30, 8, str(r[1]), 1, 0, 'C')
-                pdf.cell(40, 8, f"{float(r[2])} PKR", 1, 0, 'C')
-                
-                if r[3] == 'PAID':
-                    pdf.set_text_color(22, 163, 74) # Green
-                else:
-                    pdf.set_text_color(220, 38, 38) # Red
-                
-                pdf.cell(30, 8, r[3], 1, 0, 'C')
-                pdf.set_text_color(0, 0, 0)
-                pdf.cell(60, 8, str(r[4])[:19], 1, 1, 'C')
+                pdf.cell(40, 8, str(r[0]), 1, 0, 'C'); pdf.cell(40, 8, str(r[1]), 1, 0, 'C'); pdf.cell(60, 8, f"{float(r[2])} PKR", 1, 0, 'C'); pdf.cell(50, 8, r[3], 1, 1, 'C')
 
-        else:
-            return jsonify({"status": "error", "message": "Unknown report type"}), 400
+        elif report_type == 'leaderboard':
+            pdf.set_font('helvetica', 'B', 14); pdf.cell(0, 10, "Points Leaderboard", 0, 1, 'L'); pdf.ln(5)
+            cursor.execute("SELECT TOP 20 u.name, lp.points, lp.lifetime_points FROM Users u JOIN Loyalty_Points lp ON u.user_id = lp.user_id ORDER BY lp.points DESC")
+            data = cursor.fetchall()
+            pdf.set_fill_color(241, 245, 249); pdf.set_font('helvetica', 'B', 10)
+            pdf.cell(80, 8, 'Name', 1, 0, 'C', 1); pdf.cell(50, 8, 'Points', 1, 0, 'C', 1); pdf.cell(60, 8, 'Lifetime', 1, 1, 'C', 1)
+            pdf.set_font('helvetica', '', 10)
+            for r in data:
+                pdf.cell(80, 8, str(r[0])[:30], 1, 0, 'L'); pdf.cell(50, 8, str(r[1]), 1, 0, 'C'); pdf.cell(60, 8, str(r[2]), 1, 1, 'C')
 
-        # Output to bytes
-        pdf_bytes = pdf.output()
-        return Response(
-            pdf_bytes,
-            mimetype='application/pdf',
-            headers={'Content-Disposition': f'attachment; filename={report_type}_analytics.pdf'}
-        )
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
+        return Response(pdf.output(), mimetype='application/pdf', headers={'Content-Disposition': f'attachment; filename={report_type}.pdf'})
+    except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
+    finally: conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)

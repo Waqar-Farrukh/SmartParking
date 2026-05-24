@@ -6,30 +6,37 @@ const staggerContainer = { hidden: { opacity: 0 }, show: { opacity: 1, transitio
 const itemAnim = { hidden: { opacity: 0, scale: 0.95, y: 20 }, show: { opacity: 1, scale: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } } };
 
 export default function Reports() {
-  const { API_BASE, currentUser } = useAppContext();
+  const { API_BASE, currentUser, API_HEADERS } = useAppContext();
+  const [downloading, setDownloading] = useState(null);
 
-  const triggerDownload = async (type, format = 'csv') => {
-    if (!currentUser) return;
-    const isPdf = format === 'pdf';
-    const endpoint = isPdf ? `reports/pdf/${type}` : `reports/${type}`;
-    const extension = isPdf ? 'pdf' : 'csv';
-
+  const triggerDownload = async (type, isPdf) => {
     try {
-      const res = await fetch(`${API_BASE}/${endpoint}?sender_id=${currentUser.id}`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
-      if (!res.ok) throw new Error('Download failed');
+      setDownloading(`${type}-${isPdf ? 'pdf' : 'csv'}`);
+      
+      const endpoint = isPdf ? `reports/pdf/${type}` : `reports/${type}`;
+      const url = `${API_BASE}/${endpoint}?sender_id=${currentUser.id}`;
+      
+      const res = await fetch(url, { headers: API_HEADERS });
+      
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Server error: ${res.status}`);
+      }
+
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${type}_report.${extension}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', `SmartParking_${type}_${new Date().toISOString().split('T')[0]}.${isPdf ? 'pdf' : 'csv'}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
     } catch (err) {
+      console.error('Download failed:', err);
       alert(`Download failed: ${err.message}`);
+    } finally {
+      setDownloading(null);
     }
   };
 

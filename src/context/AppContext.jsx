@@ -579,7 +579,8 @@ export function AppProvider({ children }) {
     addWallet, redeemPoints,
     updateUserAdmin, deleteUserAdmin, addParkingSpot, deleteParkingSpot, toggleZoneStatus, toggleSpotStatus,
     deleteViolationAdmin, markViolationPaidAdmin,
-    API_BASE
+    API_BASE,
+    API_HEADERS
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
