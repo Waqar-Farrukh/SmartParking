@@ -27,7 +27,11 @@ export default function NewBooking() {
   const [discountCode, setDiscountCode] = useState('');
 
   const [estimatedCost, setEstimatedCost] = useState(0);
+  const [hourlyRate, setHourlyRate] = useState(0);
+  const [baseHourlyRate, setBaseHourlyRate] = useState(0);
   const [isSurge, setIsSurge] = useState(false);
+  const [occupancyPercent, setOccupancyPercent] = useState(0);
+  const [zoneSurge, setZoneSurge] = useState({});
   const [errorMsg, setErrorMsg] = useState('');
   const [appliedDiscount, setAppliedDiscount] = useState(0);
   const [discountStatus, setDiscountStatus] = useState(null); // 'valid' or 'invalid'
@@ -47,14 +51,18 @@ export default function NewBooking() {
   }, [entryTime, exitTime]);
 
   const zoneSpots = spots.filter(s => s.zone === selectedZone);
-  const occupiedSpotsCount = zoneSpots.filter(s => s.status === 'occupied' || s.status === 'reserved').length;
-  const occupancyPercentage = zoneSpots.length ? (occupiedSpotsCount / zoneSpots.length) * 100 : 0;
+
+  const toApiTime = (localValue) => {
+    if (!localValue) return '';
+    return new Date(localValue).toISOString();
+  };
 
   useEffect(() => {
-    if (!entryTime || !exitTime) return;
+    if (!entryTime || !exitTime || !currentUser?.id) return;
+
     const start = new Date(entryTime);
     const end = new Date(exitTime);
-    let diffHours = (end - start) / 3600000;
+    const diffHours = (end - start) / 3600000;
 
     if (diffHours <= 0) {
       setErrorMsg('Exit time must be after Entry time.');
@@ -63,19 +71,80 @@ export default function NewBooking() {
     }
     if (diffHours < 1) {
       setErrorMsg('Minimum duration is 1 hour.');
-      diffHours = 1;
+    } else if (diffHours > 4) {
+      setErrorMsg('Maximum booking duration is 4 hours.');
+      setEstimatedCost(0);
+      return;
     } else {
       setErrorMsg('');
     }
 
-    const vType = vehicleTypes.find(v => v.id === vehicle);
-    let rate = vType ? vType.baseRate : 80;
-    const surgeActive = occupancyPercentage > 80;
-    setIsSurge(surgeActive);
+    let cancelled = false;
 
-    if (surgeActive) rate *= 1.2;
-    setEstimatedCost(Math.ceil(rate * diffHours));
-  }, [entryTime, exitTime, vehicle, occupancyPercentage, vehicleTypes]);
+    const loadZoneFlags = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/parking/zone-pricing`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+          body: JSON.stringify({
+            userId: currentUser.id,
+            startTime: toApiTime(entryTime),
+            endTime: toApiTime(exitTime),
+          }),
+        });
+        const data = await res.json();
+        if (!cancelled && data.status === 'success' && data.zones) {
+          const flags = {};
+          for (const [z, q] of Object.entries(data.zones)) {
+            if (q && !q.error) flags[z] = q.isSurge;
+          }
+          setZoneSurge(flags);
+        }
+      } catch (e) {
+        console.error('zone-pricing:', e);
+      }
+    };
+
+    const loadQuote = async () => {
+      try {
+        const body = {
+          userId: currentUser.id,
+          startTime: toApiTime(entryTime),
+          endTime: toApiTime(exitTime),
+          zone: selectedZone,
+        };
+        if (selectedSpot) body.spotId = selectedSpot;
+
+        const res = await fetch(`${API_BASE}/parking/price-quote`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (data.status === 'success') {
+          setEstimatedCost(Math.ceil(data.price));
+          setHourlyRate(data.rate);
+          setBaseHourlyRate(data.baseRate);
+          setIsSurge(!!data.isSurge);
+          setOccupancyPercent(data.occupancyPercent ?? 0);
+          if (data.message) setErrorMsg('');
+        } else {
+          setErrorMsg(data.message || 'Could not calculate price.');
+          setEstimatedCost(0);
+        }
+      } catch (e) {
+        console.error('price-quote:', e);
+        if (!cancelled) setErrorMsg('Could not reach pricing service. Is the API running?');
+      }
+    };
+
+    loadZoneFlags();
+    loadQuote();
+
+    return () => { cancelled = true; };
+  }, [entryTime, exitTime, vehicle, selectedZone, selectedSpot, currentUser?.id, API_BASE]);
 
   const finalPrice = Math.max(0, estimatedCost - appliedDiscount);
 
@@ -214,6 +283,12 @@ export default function NewBooking() {
             </div>
           </div>
 
+          {isSurge && !errorMsg && (
+            <motion.div initial={{opacity:0}} animate={{opacity:1}} className="mt-8 text-v3-ruby font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 bg-v3-ruby/5 p-5 rounded-3xl border border-v3-ruby/20">
+              <AlertCircle size={18}/> Zone {selectedZone} surge active — {occupancyPercent}% booked for your time window (+20% rate)
+            </motion.div>
+          )}
+
           {errorMsg && <motion.div initial={{opacity:0}} animate={{opacity:1}} className="mt-10 text-v3-ruby font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 bg-v3-ruby/5 p-6 rounded-3xl border border-v3-ruby/10 animate-pulse"><AlertCircle/> {errorMsg}</motion.div>}
         </motion.div>
       )}
@@ -224,10 +299,19 @@ export default function NewBooking() {
             <h2 className="text-3xl font-black font-display flex items-center gap-4 text-v3-emerald tracking-tight"><MapPin size={32}/> 02. Digital Matrix</h2>
             <div className="flex bg-gray-100 dark:bg-black/40 p-2 rounded-3xl border border-black/5 dark:border-white/5">
               {['A','B','C'].map(floor => (
-                <button key={floor} onClick={() => { setSelectedZone(floor); setSelectedSpot(null); }} className={`px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${selectedZone === floor ? 'bg-white dark:bg-v3-slate shadow-aesthetic dark:shadow-2xl text-v3-indigo dark:text-v3-teal scale-105' : 'opacity-30'}`} style={{ color: (!isDark && selectedZone === floor) ? '#C26A5A' : '' }}>Zone {floor}</button>
+                <button key={floor} onClick={() => { setSelectedZone(floor); setSelectedSpot(null); }} className={`px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex flex-col items-center gap-1 ${selectedZone === floor ? 'bg-white dark:bg-v3-slate shadow-aesthetic dark:shadow-2xl text-v3-indigo dark:text-v3-teal scale-105' : 'opacity-30'}`} style={{ color: (!isDark && selectedZone === floor) ? '#C26A5A' : '' }}>
+                  <span>Zone {floor}</span>
+                  {zoneSurge[floor] && <span className="text-[9px] text-v3-ruby font-black">SURGE</span>}
+                </button>
               ))}
             </div>
           </div>
+
+          {isSurge && (
+            <motion.div initial={{opacity:0}} animate={{opacity:1}} className="mb-8 text-v3-ruby font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 bg-v3-ruby/5 p-5 rounded-3xl border border-v3-ruby/20">
+              <AlertCircle size={18}/> Dynamic surge for Zone {selectedZone}: {occupancyPercent}% of active spots booked in your time window — rate {hourlyRate} PKR/hr (+20%)
+            </motion.div>
+          )}
 
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {zoneSpots.map(s => {
@@ -288,8 +372,13 @@ export default function NewBooking() {
                       </div>
                        <div className="flex justify-between items-center">
                           <span className="text-xs font-black uppercase tracking-widest opacity-30" style={{ color: isDark ? '' : '#A39B93' }}>Matrix Billing</span>
-                          <span className="text-2xl font-black dark:text-white" style={{ color: isDark ? '' : '#2C2A29' }}>
+                          <span className="text-2xl font-black dark:text-white text-right" style={{ color: isDark ? '' : '#2C2A29' }}>
                             {finalPrice} <span className="text-xs opacity-30">PKR</span>
+                            {isSurge && (
+                              <span className="block text-[10px] text-v3-ruby mt-1 font-black uppercase tracking-widest">
+                                Surge rate: {hourlyRate} PKR/hr (base {baseHourlyRate})
+                              </span>
+                            )}
                             {appliedDiscount > 0 && (
                               <span className="block text-[10px] text-v3-emerald mt-1 font-black uppercase tracking-widest">
                                 Was {estimatedCost} PKR — {appliedDiscount} PKR discount applied
@@ -343,7 +432,12 @@ export default function NewBooking() {
            <div className="max-w-5xl mx-auto backdrop-blur-3xl border rounded-[3rem] p-8 flex justify-between items-center shadow-[0_30px_100px_rgba(0,0,0,0.2)]" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.9)' : 'rgba(44,42,41,0.9)', borderColor: isDark ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' }}>
               <div className="ml-8">
                  <p className="text-[10px] font-black uppercase tracking-[0.4em] leading-none mb-3" style={{ color: isDark ? '#C26A5A' : '#00ced1' }}>Billing Projection</p>
-                  <h3 className="text-5xl font-display font-black leading-none tracking-tighter" style={{ color: isDark ? '#2C2A29' : '#FFFFFF' }}>{finalPrice} <span className="text-sm opacity-40">PKR</span> {isSurge && <span className="text-sm text-v3-gold"> (SURGE)</span>}</h3>
+                  <h3 className="text-5xl font-display font-black leading-none tracking-tighter" style={{ color: isDark ? '#2C2A29' : '#FFFFFF' }}>{finalPrice} <span className="text-sm opacity-40">PKR</span> {isSurge && <span className="text-sm text-v3-gold"> (SURGE +20%)</span>}</h3>
+                  {hourlyRate > 0 && (
+                    <p className="text-xs font-bold mt-2 opacity-70" style={{ color: isDark ? '#2C2A29' : '#FFFFFF' }}>
+                      {hourlyRate} PKR/hr{isSurge ? ` (base ${baseHourlyRate})` : ''} · Zone {selectedZone} · {occupancyPercent}% full
+                    </p>
+                  )}
               </div>
               <button
                 onClick={handleNextStep}

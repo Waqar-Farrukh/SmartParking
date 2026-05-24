@@ -233,6 +233,144 @@ def get_spots():
 
 # ===== BOOKING =====
 
+SURGE_OCCUPANCY_RATIO = 0.8  # surge when >80% of active spots booked in the time window
+
+
+def _compute_booking_quote(cursor, zone, vehicle_type_id, start, end):
+    """Shared pricing: matches admin surge logic to the requested time window."""
+    start_dt = datetime.fromisoformat(start.replace('Z', '').split('+')[0])
+    end_dt = datetime.fromisoformat(end.replace('Z', '').split('+')[0])
+    diff = (end_dt - start_dt).total_seconds() / 3600.0
+
+    if diff <= 0:
+        return None, 'Exit time must be after start time.'
+    if diff > 4.0:
+        return None, 'Maximum booking duration is 4 hours.'
+
+    hours = max(1.0, round(diff, 2))
+
+    cursor.execute('SELECT base_rate FROM Vehicle_Types WHERE type_id = ?', (vehicle_type_id,))
+    row = cursor.fetchone()
+    base_rate = float(row[0]) if row else 80.0
+
+    cursor.execute(
+        'SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1',
+        (zone,),
+    )
+    total_active = cursor.fetchone()[0] or 0
+    if total_active == 0:
+        return None, f'Zone {zone} has no active spots.'
+
+    cursor.execute(
+        """
+        SELECT COUNT(DISTINCT r.spot_id)
+        FROM Reservations r
+        JOIN Parking_Spots p ON r.spot_id = p.spot_id
+        WHERE p.zone_id = ?
+          AND p.is_active = 1
+          AND r.status IN ('reserved', 'active')
+          AND r.start_time < ?
+          AND r.end_time > ?
+        """,
+        (zone, end, start),
+    )
+    booked_in_window = cursor.fetchone()[0]
+    threshold = SURGE_OCCUPANCY_RATIO * total_active
+    is_surge = booked_in_window > threshold
+    rate = base_rate * 1.2 if is_surge else base_rate
+    price = float(rate) * hours
+    occupancy_percent = int((booked_in_window / total_active) * 100) if total_active else 0
+
+    return {
+        'hours': hours,
+        'baseRate': base_rate,
+        'rate': rate,
+        'price': round(price, 2),
+        'isSurge': is_surge,
+        'occupancyPercent': occupancy_percent,
+        'bookedInWindow': booked_in_window,
+        'activeSpotsInZone': total_active,
+        'zone': str(zone).strip(),
+    }, None
+
+
+@app.route('/api/parking/price-quote', methods=['POST'])
+def price_quote():
+    data = request.json or {}
+    user_id = data.get('userId')
+    start = data.get('startTime')
+    end = data.get('endTime')
+    zone = data.get('zone')
+    spot_id = data.get('spotId')
+
+    if not user_id or not start or not end:
+        return jsonify({'status': 'error', 'message': 'userId, startTime, and endTime are required.'}), 400
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT vehicle_type_id FROM Users WHERE user_id = ?', (user_id,))
+        urow = cursor.fetchone()
+        if not urow:
+            return jsonify({'status': 'error', 'message': 'User not found.'}), 404
+        v_type = urow[0]
+
+        if spot_id:
+            cursor.execute(
+                'SELECT zone_id FROM Parking_Spots WHERE spot_id = ? AND is_active = 1',
+                (spot_id,),
+            )
+            zrow = cursor.fetchone()
+            if not zrow:
+                return jsonify({'status': 'error', 'message': 'Spot not found or offline.'}), 400
+            zone = zrow[0]
+        if not zone:
+            return jsonify({'status': 'error', 'message': 'zone or spotId is required.'}), 400
+
+        quote, err = _compute_booking_quote(cursor, str(zone).strip(), v_type, start, end)
+        if err:
+            return jsonify({'status': 'error', 'message': err}), 400
+        return jsonify({'status': 'success', **quote})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+    finally:
+        conn.close()
+
+
+@app.route('/api/parking/zone-pricing', methods=['POST'])
+def zone_pricing():
+    """Surge flags per zone for the selected time window (booking UI zone tabs)."""
+    data = request.json or {}
+    user_id = data.get('userId')
+    start = data.get('startTime')
+    end = data.get('endTime')
+
+    if not user_id or not start or not end:
+        return jsonify({'status': 'error', 'message': 'userId, startTime, and endTime are required.'}), 400
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT vehicle_type_id FROM Users WHERE user_id = ?', (user_id,))
+        urow = cursor.fetchone()
+        if not urow:
+            return jsonify({'status': 'error', 'message': 'User not found.'}), 404
+        v_type = urow[0]
+
+        zones_out = {}
+        for z in ['A', 'B', 'C']:
+            quote, err = _compute_booking_quote(cursor, z, v_type, start, end)
+            if err:
+                zones_out[z] = {'error': err}
+            else:
+                zones_out[z] = quote
+        return jsonify({'status': 'success', 'zones': zones_out})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+    finally:
+        conn.close()
+
+
 @app.route('/api/parking/book', methods=['POST'])
 def book_spot():
     data = request.json
@@ -274,15 +412,12 @@ def book_spot():
         cursor.execute("SELECT vehicle_type_id FROM Users WHERE user_id = ?", (user_id,))
         v_type = cursor.fetchone()[0]
 
-        # Calculate duration in hours
-        start_dt = datetime.fromisoformat(start.replace('Z', ''))
-        end_dt = datetime.fromisoformat(end.replace('Z', ''))
-        diff = (end_dt - start_dt).total_seconds() / 3600.0
-        
-        if diff > 4.0:
-            return jsonify({"status": "error", "message": "Maximum booking duration is 4 hours."}), 400
-            
-        hours = max(1.0, round(diff, 2))
+        quote, err = _compute_booking_quote(cursor, zone, v_type, start, end)
+        if err:
+            return jsonify({"status": "error", "message": err}), 400
+
+        hours = quote['hours']
+        final_price_before_discount = quote['price']
 
         # Handle Discount Code
         discount_amount = 0.0
@@ -292,32 +427,11 @@ def book_spot():
             disc_row = cursor.fetchone()
             if disc_row:
                 discount_amount = float(disc_row[0])
-                # Mark as used
                 cursor.execute("UPDATE Discounts SET used = 1 WHERE code = ?", (discount_code,))
             else:
                 return jsonify({"status": "error", "message": "Invalid or already used discount code."}), 400
 
-        # Python-based Dynamic Pricing Replacement
-        cursor.execute("SELECT base_rate FROM Vehicle_Types WHERE type_id = ?", (v_type,))
-        base_rate = float(cursor.fetchone()[0])
-        
-        cursor.execute("SELECT COUNT(*) FROM Parking_Spots WHERE zone_id = ? AND is_active = 1", (zone,))
-        total_zone_spots = cursor.fetchone()[0]
-        
-        cursor.execute("""
-            SELECT COUNT(DISTINCT r.spot_id)
-            FROM Reservations r
-            JOIN Parking_Spots p ON r.spot_id = p.spot_id
-            WHERE p.zone_id = ?
-              AND r.status IN ('reserved', 'active')
-              AND r.start_time < ?
-              AND r.end_time > ?
-        """, (zone, end, start))
-        active_overlapping = cursor.fetchone()[0]
-        
-        rate = base_rate * 1.2 if active_overlapping > 0.8 * total_zone_spots else base_rate
-        
-        final_price = max(0.0, (float(rate) * hours if rate else 80.0 * hours) - discount_amount)
+        final_price = max(0.0, final_price_before_discount - discount_amount)
         points_earned = int(final_price * 10)
 
         # Check wallet balance
@@ -769,12 +883,18 @@ def admin_stats():
         cursor.execute("SELECT zone_id, SUM(CAST(is_active AS INT)) FROM Parking_Spots GROUP BY zone_id")
         zone_online = {str(r[0]).strip(): r[1] for r in cursor.fetchall()}
 
-        # Active active bookings right now
         cursor.execute("""
-            SELECT p.zone_id, COUNT(*)
+            SELECT zone_id, COUNT(*) FROM Parking_Spots WHERE is_active = 1 GROUP BY zone_id
+        """)
+        zone_active_totals = {str(r[0]).strip(): r[1] for r in cursor.fetchall()}
+
+        # Active bookings right now (distinct spots)
+        cursor.execute("""
+            SELECT p.zone_id, COUNT(DISTINCT r.spot_id)
             FROM Reservations r
             JOIN Parking_Spots p ON r.spot_id = p.spot_id
-            WHERE r.status IN ('reserved', 'active') 
+            WHERE p.is_active = 1
+              AND r.status IN ('reserved', 'active') 
               AND r.end_time > GETUTCDATE()
             GROUP BY p.zone_id
         """)
@@ -784,9 +904,10 @@ def admin_stats():
         pricing_state = []
         for z in ['A', 'B', 'C']:
             total_spots = zone_totals.get(z, 0)
+            active_spots = zone_active_totals.get(z, 0) or total_spots
             occupied = zone_active_counts.get(z, 0)
             online_count = zone_online.get(z, 0)
-            available = total_spots - occupied if total_spots > occupied else 0
+            available = max(0, active_spots - occupied)
             
             zone_occupancy.append({
                 "zone": z,
@@ -796,11 +917,11 @@ def admin_stats():
                 "online": online_count
             })
             
-            occupancy_percent = (occupied / total_spots * 100) if total_spots > 0 else 0
+            occupancy_percent = (occupied / active_spots * 100) if active_spots > 0 else 0
             pricing_state.append({
                 "zone": z,
                 "occupancyPercent": int(occupancy_percent),
-                "surgeActive": occupancy_percent > 80
+                "surgeActive": occupied > SURGE_OCCUPANCY_RATIO * active_spots
             })
 
         return jsonify({
